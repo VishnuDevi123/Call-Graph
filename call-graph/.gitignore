@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build and test output
+dist/
+out/
+.vscode-test/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment/local config
+.env
+.env.*
+!.env.example
+
+# Package artifacts
+*.vsix
+*.tgz
+
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo

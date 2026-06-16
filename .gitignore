@@ -1,0 +1,8 @@
+# Local planning and skill files
+docs/
+SKILLS/
+.agents/
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo
