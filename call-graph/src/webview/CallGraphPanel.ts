@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { sampleGraph } from '../graph/sampleGraph';
+import { emptyGraph } from '../graph/emptyGraph';
+import type { GraphModel } from '../graph/types';
 import { getWebviewHtml } from './html';
 
 type WebviewMessage =
@@ -20,7 +21,7 @@ export class CallGraphPanel {
 			localResourceRoots: [extensionUri],
 		};
 
-		this.panel.webview.html = getWebviewHtml(this.panel.webview, sampleGraph);
+		this.panel.webview.html = getWebviewHtml(this.panel.webview, emptyGraph);
 
 		this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
 		this.panel.webview.onDidReceiveMessage(
@@ -50,6 +51,13 @@ export class CallGraphPanel {
 		CallGraphPanel.currentPanel = new CallGraphPanel(panel, context.extensionUri);
 	}
 
+	public updateGraph(graph: GraphModel): void {
+		void this.panel.webview.postMessage({
+			type: 'graphUpdated',
+			graph,
+		});
+	}
+
 	private handleMessage(message: WebviewMessage): void {
 		switch (message.type) {
 			case 'nodeSelected':
@@ -59,7 +67,7 @@ export class CallGraphPanel {
 				void vscode.window.showInformationMessage(`Call Graph canvas selected: ${message.nodeId}`);
 				return;
 			case 'refreshRequested':
-				void vscode.window.showInformationMessage('Call Graph refresh requested.');
+				void vscode.commands.executeCommand('call-graph.refreshIndex');
 				return;
 		}
 	}

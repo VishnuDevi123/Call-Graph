@@ -68,6 +68,7 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 		}
 
 		.canvas {
+			position: relative;
 			min-height: calc(100vh - 44px);
 			padding: 28px;
 			display: grid;
@@ -76,7 +77,26 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 			align-items: center;
 		}
 
+		.edge-overlay {
+			position: absolute;
+			inset: 0;
+			width: 100%;
+			height: 100%;
+			pointer-events: none;
+			z-index: 0;
+			overflow: visible;
+		}
+
+		.edge-path {
+			fill: none;
+			stroke: var(--accent);
+			stroke-width: 1.5;
+			stroke-opacity: 0.72;
+		}
+
 		.group {
+			position: relative;
+			z-index: 1;
 			display: grid;
 			gap: 14px;
 			align-content: center;
@@ -88,6 +108,16 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 			font-size: 12px;
 			text-transform: uppercase;
 			letter-spacing: 0;
+		}
+
+		.empty-state {
+			color: var(--muted);
+			border: 1px dashed var(--border);
+			border-radius: 6px;
+			padding: 12px;
+			min-height: 74px;
+			display: flex;
+			align-items: center;
 		}
 
 		.node {
@@ -102,6 +132,7 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 			display: grid;
 			gap: 6px;
 			box-shadow: none;
+			transition: border-color 140ms ease, transform 140ms ease;
 		}
 
 		.node:hover,
@@ -115,6 +146,7 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 			border-color: var(--accent);
 			border-width: 2px;
 			font-size: 1.08em;
+			transform: translateY(-1px);
 		}
 
 		.node-name {
@@ -180,8 +212,9 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 	<main id="canvas" class="canvas" aria-label="Call graph canvas"></main>
 	<script nonce="${nonce}">
 		const vscode = acquireVsCodeApi();
-		const graph = ${graphJson};
+		let graph = ${graphJson};
 		const canvas = document.getElementById('canvas');
+		const svgNamespace = 'http://www.w3.org/2000/svg';
 
 		function nodeButton(node) {
 			const button = document.createElement('button');
@@ -205,6 +238,13 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 			heading.className = 'group-label';
 			heading.textContent = label;
 			group.appendChild(heading);
+			if (nodes.length === 0) {
+				const empty = document.createElement('div');
+				empty.className = 'empty-state';
+				empty.textContent = 'None';
+				group.appendChild(empty);
+				return group;
+			}
 			for (const node of nodes) {
 				group.appendChild(nodeButton(node));
 				const edge = graph.edges.find((candidate) => candidate.from === node.id || candidate.to === node.id);
@@ -234,6 +274,8 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 		}
 
 		function render() {
+			canvas.replaceChildren();
+			canvas.appendChild(edgeOverlay());
 			const callers = graph.nodes.filter((node) => node.role === 'caller');
 			const focus = graph.nodes.filter((node) => node.role === 'focus');
 			const callees = graph.nodes.filter((node) => node.role === 'callee');
@@ -245,6 +287,80 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 			details.appendChild(renderDetails('Unresolved calls', graph.unresolvedCalls));
 			details.appendChild(renderDetails('External calls', graph.externalCalls));
 			canvas.appendChild(details);
+			requestAnimationFrame(renderEdges);
+		}
+
+		function applyGraphUpdate(nextGraph) {
+			graph = nextGraph;
+			render();
+		}
+
+		function edgeOverlay() {
+			const svg = document.createElementNS(svgNamespace, 'svg');
+			svg.classList.add('edge-overlay');
+			svg.setAttribute('aria-hidden', 'true');
+			const defs = document.createElementNS(svgNamespace, 'defs');
+			const marker = document.createElementNS(svgNamespace, 'marker');
+			marker.setAttribute('id', 'arrowhead');
+			marker.setAttribute('viewBox', '0 0 10 10');
+			marker.setAttribute('refX', '9');
+			marker.setAttribute('refY', '5');
+			marker.setAttribute('markerWidth', '7');
+			marker.setAttribute('markerHeight', '7');
+			marker.setAttribute('orient', 'auto-start-reverse');
+			const markerPath = document.createElementNS(svgNamespace, 'path');
+			markerPath.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z');
+			markerPath.setAttribute('fill', 'var(--accent)');
+			markerPath.setAttribute('fill-opacity', '0.72');
+			marker.appendChild(markerPath);
+			defs.appendChild(marker);
+			svg.appendChild(defs);
+			return svg;
+		}
+
+		function renderEdges() {
+			const overlay = canvas.querySelector('.edge-overlay');
+			if (!overlay) {
+				return;
+			}
+
+			for (const path of overlay.querySelectorAll('.edge-path')) {
+				path.remove();
+			}
+
+			const canvasRect = canvas.getBoundingClientRect();
+			overlay.setAttribute('viewBox', '0 0 ' + canvasRect.width + ' ' + canvasRect.height);
+
+			for (const edge of graph.edges) {
+				const fromNode = canvas.querySelector('[data-node-id="' + cssEscape(edge.from) + '"]');
+				const toNode = canvas.querySelector('[data-node-id="' + cssEscape(edge.to) + '"]');
+				if (!fromNode || !toNode) {
+					continue;
+				}
+
+				const start = connectionPoint(fromNode.getBoundingClientRect(), canvasRect, 'right');
+				const end = connectionPoint(toNode.getBoundingClientRect(), canvasRect, 'left');
+				const curve = Math.max(40, Math.abs(end.x - start.x) * 0.45);
+				const path = document.createElementNS(svgNamespace, 'path');
+				path.classList.add('edge-path');
+				path.setAttribute('d', 'M ' + start.x + ' ' + start.y + ' C ' + (start.x + curve) + ' ' + start.y + ', ' + (end.x - curve) + ' ' + end.y + ', ' + end.x + ' ' + end.y);
+				path.setAttribute('marker-end', 'url(#arrowhead)');
+				overlay.appendChild(path);
+			}
+		}
+
+		function connectionPoint(nodeRect, canvasRect, side) {
+			return {
+				x: (side === 'right' ? nodeRect.right : nodeRect.left) - canvasRect.left,
+				y: nodeRect.top + nodeRect.height / 2 - canvasRect.top,
+			};
+		}
+
+		function cssEscape(value) {
+			if (window.CSS && CSS.escape) {
+				return CSS.escape(value);
+			}
+			return value.replace(/["\\\\]/g, '\\\\$&');
 		}
 
 		canvas.addEventListener('click', () => {
@@ -254,6 +370,17 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 		document.getElementById('refresh').addEventListener('click', (event) => {
 			event.stopPropagation();
 			vscode.postMessage({ type: 'refreshRequested' });
+		});
+
+		window.addEventListener('message', (event) => {
+			const message = event.data;
+			if (message.type === 'graphUpdated') {
+				applyGraphUpdate(message.graph);
+			}
+		});
+
+		window.addEventListener('resize', () => {
+			requestAnimationFrame(renderEdges);
 		});
 
 		render();

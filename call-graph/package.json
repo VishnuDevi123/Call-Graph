@@ -10,7 +10,9 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:call-graph.open"
+    "onCommand:call-graph.open",
+    "onCommand:call-graph.focusCurrentFunction",
+    "onCommand:call-graph.refreshIndex"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -18,8 +20,25 @@
       {
         "command": "call-graph.open",
         "title": "Open Call Graph"
+      },
+      {
+        "command": "call-graph.refreshIndex",
+        "title": "Refresh Call Graph Index"
+      },
+      {
+        "command": "call-graph.focusCurrentFunction",
+        "title": "Focus Call Graph on Current Function"
       }
-    ]
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "call-graph.open",
+          "when": "resourceLangId == python",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
@@ -33,18 +52,25 @@
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "npm run test:unit && npm run test:vscode",
+    "test:unit": "mocha --ui tdd \"out/test/analyzer/**/*.test.js\"",
+    "test:vscode": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.120.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
-    "typescript-eslint": "^8.56.1",
-    "eslint": "^9.39.3",
+    "@types/vscode": "^1.120.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.27.3",
+    "eslint": "^9.39.3",
+    "mocha": "^11.7.6",
     "npm-run-all": "^4.1.5",
     "typescript": "^5.9.3",
-    "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2"
+    "typescript-eslint": "^8.56.1"
+  },
+  "dependencies": {
+    "tree-sitter-python": "^0.25.0",
+    "web-tree-sitter": "^0.26.9"
   }
 }
