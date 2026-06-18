@@ -38,7 +38,7 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 		}
 
 		.toolbar {
-			height: 44px;
+			min-height: 44px;
 			display: flex;
 			align-items: center;
 			justify-content: space-between;
@@ -51,6 +51,13 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 		.title {
 			font-weight: 600;
 			white-space: nowrap;
+		}
+
+		.status {
+			flex: 1;
+			color: var(--vscode-editorWarning-foreground);
+			font-size: 12px;
+			text-align: right;
 		}
 
 		button {
@@ -207,6 +214,7 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 <body>
 	<header class="toolbar">
 		<div class="title">Call Graph</div>
+		<div id="status" class="status" role="status" aria-live="polite"></div>
 		<button id="refresh" type="button">Refresh</button>
 	</header>
 	<main id="canvas" class="canvas" aria-label="Call graph canvas"></main>
@@ -214,6 +222,7 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 		const vscode = acquireVsCodeApi();
 		let graph = ${graphJson};
 		const canvas = document.getElementById('canvas');
+		const status = document.getElementById('status');
 		const svgNamespace = 'http://www.w3.org/2000/svg';
 
 		function nodeButton(node) {
@@ -363,8 +372,11 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 			return value.replace(/["\\\\]/g, '\\\\$&');
 		}
 
-		canvas.addEventListener('click', () => {
-			vscode.postMessage({ type: 'canvasSelected', nodeId: graph.focusNodeId });
+		canvas.addEventListener('click', (event) => {
+			if (event.target instanceof Element && event.target.closest('button, details')) {
+				return;
+			}
+			vscode.postMessage({ type: 'canvasSelected' });
 		});
 
 		document.getElementById('refresh').addEventListener('click', (event) => {
@@ -376,6 +388,8 @@ export function getWebviewHtml(webview: vscode.Webview, graph: GraphModel): stri
 			const message = event.data;
 			if (message.type === 'graphUpdated') {
 				applyGraphUpdate(message.graph);
+			} else if (message.type === 'statusUpdated') {
+				status.textContent = message.message || '';
 			}
 		});
 

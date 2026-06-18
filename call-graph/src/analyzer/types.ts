@@ -32,6 +32,10 @@ export interface CallSite {
 	expression: string;
 	calleeName: string;
 	range: SourceRange;
+	receiver?: {
+		kind: 'self' | 'cls' | 'localConstruction' | 'localAnnotation';
+		className: string;
+	};
 }
 
 export interface GraphEdge {

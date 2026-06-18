@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { FocusController } from './focus';
-import { WorkspaceIndexService } from './indexing';
+import { DocumentUpdateController, WorkspaceIndexService } from './indexing';
 import { CallGraphPanel } from './webview/CallGraphPanel';
 
 export function activate(context: vscode.ExtensionContext) {
@@ -8,9 +8,14 @@ export function activate(context: vscode.ExtensionContext) {
 
 	const workspaceIndex = new WorkspaceIndexService();
 	const focusController = new FocusController(workspaceIndex);
+	const documentUpdates = new DocumentUpdateController(workspaceIndex, focusController);
+	const panelHandlers = {
+		onNodeSelected: (nodeId: string) => focusController.navigateToNode(nodeId),
+		onCanvasSelected: () => focusController.revealCurrentFocus(),
+	};
 
 	const openCommand = vscode.commands.registerCommand('call-graph.open', async () => {
-		CallGraphPanel.open(context);
+		CallGraphPanel.open(context, panelHandlers);
 		await focusController.focusActiveEditor({
 			refreshIfMissing: true,
 			warnWhenOutsideFunction: true,
@@ -28,7 +33,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	const focusCommand = vscode.commands.registerCommand('call-graph.focusCurrentFunction', async () => {
-		CallGraphPanel.open(context);
+		CallGraphPanel.open(context, panelHandlers);
 		await focusController.focusActiveEditor({
 			refreshIfMissing: true,
 			warnWhenOutsideFunction: true,
@@ -36,7 +41,7 @@ export function activate(context: vscode.ExtensionContext) {
 		});
 	});
 
-	context.subscriptions.push(workspaceIndex, focusController, openCommand, refreshCommand, focusCommand);
+	context.subscriptions.push(workspaceIndex, focusController, documentUpdates, openCommand, refreshCommand, focusCommand);
 }
 
 export function deactivate() {}

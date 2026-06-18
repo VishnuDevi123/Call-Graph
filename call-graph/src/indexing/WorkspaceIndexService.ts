@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { PythonParser, resolveSameFileCalls } from '../analyzer';
-import type { ParsedFile, ParseDiagnostic } from '../analyzer';
+import type { FunctionNode, ParsedFile, ParseDiagnostic } from '../analyzer';
+import { chooseParsedFileUpdate } from './updatePolicy';
 
 const PYTHON_FILE_GLOB = '**/*.py';
 const IGNORED_FOLDER_GLOB = '{**/.venv/**,**/venv/**,**/.tox/**,**/__pycache__/**,**/site-packages/**,**/build/**,**/dist/**}';
@@ -18,9 +19,22 @@ export interface WorkspaceIndexDiagnostic {
 	diagnostic: ParseDiagnostic;
 }
 
+export interface IndexedNode {
+	node: FunctionNode;
+	parsedFile: ParsedFile;
+	uri: vscode.Uri;
+}
+
 interface IndexFileResult {
 	parsed: ParsedFile;
 	hasErrors: boolean;
+}
+
+export interface DocumentUpdateResult {
+	status: 'updated' | 'parseError';
+	parsedFile: ParsedFile | undefined;
+	diagnostics: WorkspaceIndexDiagnostic[];
+	retainedLastGood: boolean;
 }
 
 export class WorkspaceIndexService implements vscode.Disposable {
@@ -65,6 +79,40 @@ export class WorkspaceIndexService implements vscode.Disposable {
 
 	public getParsedFile(file: vscode.Uri): ParsedFile | undefined {
 		return this.lastGoodFiles.get(file.toString());
+	}
+
+	public getNode(nodeId: string): IndexedNode | undefined {
+		for (const [uri, parsedFile] of this.lastGoodFiles) {
+			const node = parsedFile.nodes.find(candidate => candidate.id === nodeId);
+			if (node) {
+				return {
+					node,
+					parsedFile,
+					uri: vscode.Uri.parse(uri),
+				};
+			}
+		}
+		return undefined;
+	}
+
+	public async updateDocument(document: vscode.TextDocument): Promise<DocumentUpdateResult> {
+		const file = document.uri;
+		const relativePath = vscode.workspace.asRelativePath(file, false);
+		const parsed = await this.parseSource(relativePath, document.getText());
+		const diagnostics = this.updateDiagnostics(file, parsed);
+		const decision = chooseParsedFileUpdate(this.lastGoodFiles.get(file.toString()), parsed);
+
+		if (decision.accepted && decision.parsedFile) {
+			this.lastGoodFiles.set(file.toString(), decision.parsedFile);
+			this.updatedAt = new Date();
+		}
+
+		return {
+			status: decision.accepted ? 'updated' : 'parseError',
+			parsedFile: decision.parsedFile,
+			diagnostics,
+			retainedLastGood: decision.retainedLastGood,
+		};
 	}
 
 	public dispose(): void {
@@ -145,13 +193,9 @@ export class WorkspaceIndexService implements vscode.Disposable {
 	}
 
 	private async indexFile(file: vscode.Uri, relativePath: string): Promise<IndexFileResult> {
-		const parser = await this.getParser();
 		const bytes = await vscode.workspace.fs.readFile(file);
 		const source = Buffer.from(bytes).toString('utf8');
-		const parsed = resolveSameFileCalls(parser.parse({
-			filePath: relativePath,
-			source,
-		}));
+		const parsed = await this.parseSource(relativePath, source);
 
 		return {
 			parsed,
@@ -166,12 +210,21 @@ export class WorkspaceIndexService implements vscode.Disposable {
 		return this.parser;
 	}
 
-	private updateDiagnostics(file: vscode.Uri, parsed: ParsedFile): void {
+	private async parseSource(filePath: string, source: string): Promise<ParsedFile> {
+		const parser = await this.getParser();
+		return resolveSameFileCalls(parser.parse({
+			filePath,
+			source,
+		}));
+	}
+
+	private updateDiagnostics(file: vscode.Uri, parsed: ParsedFile): WorkspaceIndexDiagnostic[] {
 		const diagnostics = parsed.diagnostics.map(diagnostic => ({
 			filePath: parsed.filePath,
 			diagnostic,
 		}));
 		this.latestDiagnostics.set(file.toString(), diagnostics);
+		return diagnostics;
 	}
 
 	private removeDeletedFiles(files: vscode.Uri[]): void {

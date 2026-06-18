@@ -73,6 +73,35 @@ export class FocusController implements vscode.Disposable {
 		return focus;
 	}
 
+	public async navigateToNode(nodeId: string): Promise<void> {
+		const indexedNode = this.workspaceIndex.getNode(nodeId);
+		if (!indexedNode) {
+			void vscode.window.showWarningMessage('The selected Call Graph node is no longer available. Refresh the index and try again.');
+			return;
+		}
+
+		await this.revealSource(indexedNode.uri, indexedNode.node);
+		this.publishFocus({
+			node: indexedNode.node,
+			parsedFile: indexedNode.parsedFile,
+			source: indexedNode.node.kind === 'module' ? 'module' : 'function',
+		}, true);
+	}
+
+	public async revealCurrentFocus(): Promise<void> {
+		if (!this.lastFocusedNodeId) {
+			return;
+		}
+
+		const indexedNode = this.workspaceIndex.getNode(this.lastFocusedNodeId);
+		if (!indexedNode) {
+			void vscode.window.showWarningMessage('The focused Call Graph node is no longer available. Refresh the index and try again.');
+			return;
+		}
+
+		await this.revealSource(indexedNode.uri, indexedNode.node);
+	}
+
 	public dispose(): void {
 		if (this.debounceTimer) {
 			clearTimeout(this.debounceTimer);
@@ -112,6 +141,20 @@ export class FocusController implements vscode.Disposable {
 
 		this.lastFocusedNodeId = focus.node.id;
 		CallGraphPanel.currentPanel?.updateGraph(buildFocusedGraph(focus.parsedFile, focus.node));
+	}
+
+	private async revealSource(uri: vscode.Uri, node: FunctionNode): Promise<void> {
+		const document = await vscode.workspace.openTextDocument(uri);
+		const selectionRange = toVsCodeRange(node.selectionRange);
+		const editor = await vscode.window.showTextDocument(document, {
+			viewColumn: vscode.ViewColumn.One,
+			preserveFocus: false,
+			preview: true,
+			selection: node.kind === 'module'
+				? new vscode.Range(selectionRange.start, selectionRange.start)
+				: selectionRange,
+		});
+		editor.revealRange(toVsCodeRange(node.range), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
 	}
 
 	private findFocus(parsedFile: ParsedFile, position: vscode.Position): FocusUpdate | undefined {
@@ -165,4 +208,13 @@ function rangeSize(range: SourceRange): number {
 	const lineSpan = range.end.line - range.start.line;
 	const characterSpan = range.end.character - range.start.character;
 	return lineSpan * 10000 + characterSpan;
+}
+
+function toVsCodeRange(range: SourceRange): vscode.Range {
+	return new vscode.Range(
+		Math.max(0, range.start.line - 1),
+		Math.max(0, range.start.character - 1),
+		Math.max(0, range.end.line - 1),
+		Math.max(0, range.end.character - 1),
+	);
 }

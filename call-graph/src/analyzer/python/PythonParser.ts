@@ -9,6 +9,14 @@ interface Scope {
 	nodeId: string;
 	className?: string;
 	isFunction: boolean;
+	localTypes?: Map<string, LocalTypeBinding>;
+	receiverClassName?: string;
+	allowsClsReceiver?: boolean;
+}
+
+interface LocalTypeBinding {
+	className: string;
+	kind: 'localConstruction' | 'localAnnotation';
 }
 
 export class PythonParser implements SourceParser {
@@ -65,11 +73,13 @@ export class PythonParser implements SourceParser {
 			}
 
 			if (definition?.type === 'function_definition') {
-				this.visitFunction(definition, filePath, scopes, nodes, callSites);
+				this.visitFunction(definition, child, filePath, scopes, nodes, callSites);
 				continue;
 			}
 
-			this.collectCalls(child, scopes.at(-1)?.nodeId, callSites);
+			this.invalidateNestedLocalBindings(child, scopes.at(-1));
+			this.updateLocalTypeBindings(child, scopes.at(-1));
+			this.collectCalls(child, scopes.at(-1), callSites);
 			this.walkNestedDefinitions(child, filePath, scopes, nodes, callSites);
 		}
 	}
@@ -84,7 +94,7 @@ export class PythonParser implements SourceParser {
 			}
 
 			if (definition?.type === 'function_definition') {
-				this.visitFunction(definition, filePath, scopes, nodes, callSites);
+				this.visitFunction(definition, child, filePath, scopes, nodes, callSites);
 				continue;
 			}
 
@@ -108,24 +118,33 @@ export class PythonParser implements SourceParser {
 		}
 	}
 
-	private visitFunction(node: SyntaxNode, filePath: string, scopes: Scope[], nodes: FunctionNode[], callSites: CallSite[]): void {
+	private visitFunction(node: SyntaxNode, declarationNode: SyntaxNode, filePath: string, scopes: Scope[], nodes: FunctionNode[], callSites: CallSite[]): void {
 		const nameNode = node.childForFieldName('name');
 		if (!nameNode) {
 			return;
 		}
 
 		const qualifiedName = this.joinQualifiedName(scopes, nameNode.text);
-		const functionNode = this.createFunctionNode(filePath, nameNode.text, qualifiedName, this.getFunctionKind(node, scopes), node, nameNode);
+		const kind = this.getFunctionKind(node, scopes);
+		const functionNode = this.createFunctionNode(filePath, nameNode.text, qualifiedName, kind, node, nameNode);
 		nodes.push(functionNode);
 
 		const body = node.childForFieldName('body');
 		if (body) {
-			this.walkStatements(body, filePath, [...scopes, { qualifiedName, nodeId: functionNode.id, className: scopes.at(-1)?.className, isFunction: true }], nodes, callSites);
+			this.walkStatements(body, filePath, [...scopes, {
+				qualifiedName,
+				nodeId: functionNode.id,
+				className: scopes.at(-1)?.className,
+				isFunction: true,
+				localTypes: new Map(),
+				receiverClassName: kind === 'method' || kind === 'asyncMethod' ? scopes.at(-1)?.className : undefined,
+				allowsClsReceiver: this.hasDecorator(declarationNode, 'classmethod'),
+			}], nodes, callSites);
 		}
 	}
 
-	private collectCalls(node: SyntaxNode, callerId: string | undefined, callSites: CallSite[]): void {
-		if (!callerId) {
+	private collectCalls(node: SyntaxNode, scope: Scope | undefined, callSites: CallSite[]): void {
+		if (!scope) {
 			return;
 		}
 
@@ -133,11 +152,12 @@ export class PythonParser implements SourceParser {
 			const functionNode = node.childForFieldName('function');
 			const expression = functionNode?.text ?? node.text;
 			callSites.push({
-				id: `${callerId}:call:${node.startPosition.row + 1}:${node.startPosition.column + 1}:${expression}`,
-				callerId,
+				id: `${scope.nodeId}:call:${node.startPosition.row + 1}:${node.startPosition.column + 1}:${expression}`,
+				callerId: scope.nodeId,
 				expression,
 				calleeName: this.lastName(expression),
 				range: toRange(node),
+				receiver: this.getReceiverHint(functionNode, scope),
 			});
 			return;
 		}
@@ -147,8 +167,157 @@ export class PythonParser implements SourceParser {
 			if (definition?.type === 'function_definition' || definition?.type === 'class_definition') {
 				continue;
 			}
-			this.collectCalls(child, callerId, callSites);
+			this.collectCalls(child, scope, callSites);
 		}
+	}
+
+	private updateLocalTypeBindings(node: SyntaxNode, scope: Scope | undefined): void {
+		if (!scope?.isFunction || !scope.localTypes) {
+			return;
+		}
+
+		if (node.type === 'expression_statement') {
+			const expression = node.namedChildren[0];
+			if (expression) {
+				this.updateLocalTypeBindings(expression, scope);
+			}
+			return;
+		}
+
+		if (node.type === 'assignment') {
+			const target = node.childForFieldName('left');
+			const value = node.childForFieldName('right');
+			if (!target) {
+				return;
+			}
+
+			if (target.type === 'attribute') {
+				const receiver = target.childForFieldName('object');
+				if (receiver?.type === 'identifier') {
+					scope.localTypes.delete(receiver.text);
+				}
+				return;
+			}
+
+			if (target.type !== 'identifier') {
+				return;
+			}
+
+			const className = this.getConstructedClassName(value);
+			if (className) {
+				scope.localTypes.set(target.text, { className, kind: 'localConstruction' });
+			} else if (!value) {
+				const annotationName = this.getSimpleTypeName(node.childForFieldName('type'));
+				if (annotationName) {
+					scope.localTypes.set(target.text, { className: annotationName, kind: 'localAnnotation' });
+				} else {
+					scope.localTypes.delete(target.text);
+				}
+			} else {
+				scope.localTypes.delete(target.text);
+			}
+			return;
+		}
+
+		if (node.type === 'typed_parameter' || node.type === 'typed_default_parameter') {
+			return;
+		}
+
+		if (node.type === 'annotated_assignment') {
+			const target = node.childForFieldName('left');
+			const annotation = node.childForFieldName('type');
+			const value = node.childForFieldName('right');
+			if (!target || target.type !== 'identifier') {
+				return;
+			}
+
+			if (value) {
+				const constructedClass = this.getConstructedClassName(value);
+				if (!constructedClass) {
+					scope.localTypes.delete(target.text);
+					return;
+				}
+				scope.localTypes.set(target.text, { className: constructedClass, kind: 'localConstruction' });
+				return;
+			}
+
+			const annotationName = this.getSimpleTypeName(annotation);
+			if (annotationName) {
+				scope.localTypes.set(target.text, { className: annotationName, kind: 'localAnnotation' });
+			} else {
+				scope.localTypes.delete(target.text);
+			}
+		}
+	}
+
+	private invalidateNestedLocalBindings(node: SyntaxNode, scope: Scope | undefined): void {
+		if (!scope?.localTypes || node.type === 'assignment' || node.type === 'annotated_assignment') {
+			return;
+		}
+
+		for (const child of node.namedChildren) {
+			if (child.type === 'function_definition' || child.type === 'class_definition' || child.type === 'decorated_definition') {
+				continue;
+			}
+			if (child.type === 'assignment' || child.type === 'annotated_assignment') {
+				const target = child.childForFieldName('left');
+				if (target?.type === 'identifier') {
+					scope.localTypes.delete(target.text);
+				} else if (target?.type === 'attribute') {
+					const receiver = target.childForFieldName('object');
+					if (receiver?.type === 'identifier') {
+						scope.localTypes.delete(receiver.text);
+					}
+				}
+			}
+			this.invalidateNestedLocalBindings(child, scope);
+		}
+	}
+
+	private getConstructedClassName(node: SyntaxNode | null): string | undefined {
+		if (node?.type !== 'call') {
+			return undefined;
+		}
+		const functionNode = node.childForFieldName('function');
+		return functionNode?.type === 'identifier' && /^[A-Z][A-Za-z0-9_]*$/.test(functionNode.text)
+			? functionNode.text
+			: undefined;
+	}
+
+	private getSimpleTypeName(node: SyntaxNode | null): string | undefined {
+		if (node?.type === 'identifier') {
+			return node.text;
+		}
+		const identifier = node?.namedChildren.length === 1 ? node.namedChildren[0] : undefined;
+		return identifier?.type === 'identifier' ? identifier.text : undefined;
+	}
+
+	private getReceiverHint(functionNode: SyntaxNode | null, scope: Scope): CallSite['receiver'] {
+		if (functionNode?.type !== 'attribute') {
+			return undefined;
+		}
+
+		const receiverNode = functionNode.childForFieldName('object');
+		if (receiverNode?.type !== 'identifier') {
+			return undefined;
+		}
+
+		if (receiverNode.text === 'self' && scope.receiverClassName) {
+			return {
+				kind: 'self',
+				className: scope.receiverClassName,
+			};
+		}
+
+		if (receiverNode.text === 'cls' && scope.receiverClassName && scope.allowsClsReceiver) {
+			return {
+				kind: 'cls',
+				className: scope.receiverClassName,
+			};
+		}
+
+		const localType = scope.localTypes?.get(receiverNode.text);
+		return localType ? { kind: localType.kind, className: localType.className } : undefined;
 	}
 
 	private collectDiagnostics(root: SyntaxNode): ParseDiagnostic[] {
@@ -177,6 +346,18 @@ export class PythonParser implements SourceParser {
 			return node;
 		}
 		return node.childForFieldName('definition') ?? undefined;
+	}
+
+	private hasDecorator(node: SyntaxNode, decoratorName: string): boolean {
+		if (node.type !== 'decorated_definition') {
+			return false;
+		}
+		return node.namedChildren.some(child =>
+			child.type === 'decorator'
+			&& child.namedChildren.length === 1
+			&& child.namedChildren[0].type === 'identifier'
+			&& child.namedChildren[0].text === decoratorName,
+		);
 	}
 
 	private getFunctionKind(node: SyntaxNode, scopes: Scope[]): FunctionKind {

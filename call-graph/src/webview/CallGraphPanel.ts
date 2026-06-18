@@ -5,8 +5,13 @@ import { getWebviewHtml } from './html';
 
 type WebviewMessage =
 	| { type: 'nodeSelected'; nodeId: string }
-	| { type: 'canvasSelected'; nodeId: string }
+	| { type: 'canvasSelected' }
 	| { type: 'refreshRequested' };
+
+export interface CallGraphPanelHandlers {
+	onNodeSelected(nodeId: string): void | Promise<void>;
+	onCanvasSelected(): void | Promise<void>;
+}
 
 export class CallGraphPanel {
 	public static currentPanel: CallGraphPanel | undefined;
@@ -14,7 +19,7 @@ export class CallGraphPanel {
 	private readonly panel: vscode.WebviewPanel;
 	private readonly disposables: vscode.Disposable[] = [];
 
-	private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
+	private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, private readonly handlers: CallGraphPanelHandlers) {
 		this.panel = panel;
 		this.panel.webview.options = {
 			enableScripts: true,
@@ -31,7 +36,7 @@ export class CallGraphPanel {
 		);
 	}
 
-	public static open(context: vscode.ExtensionContext): void {
+	public static open(context: vscode.ExtensionContext, handlers: CallGraphPanelHandlers): void {
 		if (CallGraphPanel.currentPanel) {
 			CallGraphPanel.currentPanel.panel.reveal(vscode.ViewColumn.Beside);
 			return;
@@ -48,7 +53,7 @@ export class CallGraphPanel {
 			},
 		);
 
-		CallGraphPanel.currentPanel = new CallGraphPanel(panel, context.extensionUri);
+		CallGraphPanel.currentPanel = new CallGraphPanel(panel, context.extensionUri, handlers);
 	}
 
 	public updateGraph(graph: GraphModel): void {
@@ -58,13 +63,21 @@ export class CallGraphPanel {
 		});
 	}
 
+	public updateStatus(message: string | undefined, severity: 'warning' = 'warning'): void {
+		void this.panel.webview.postMessage({
+			type: 'statusUpdated',
+			message,
+			severity,
+		});
+	}
+
 	private handleMessage(message: WebviewMessage): void {
 		switch (message.type) {
 			case 'nodeSelected':
-				void vscode.window.showInformationMessage(`Call Graph node selected: ${message.nodeId}`);
+				void this.handlers.onNodeSelected(message.nodeId);
 				return;
 			case 'canvasSelected':
-				void vscode.window.showInformationMessage(`Call Graph canvas selected: ${message.nodeId}`);
+				void this.handlers.onCanvasSelected();
 				return;
 			case 'refreshRequested':
 				void vscode.commands.executeCommand('call-graph.refreshIndex');

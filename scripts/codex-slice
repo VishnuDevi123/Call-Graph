@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: scripts/codex-slice <slice-number|next>" >&2
+  exit 64
+fi
+
+slice="$1"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+cd "$repo_root"
+
+codex exec --sandbox workspace-write "
+Load the repository instructions from AGENTS.md.
+
+Implement Slice ${slice}.
+
+Use the slice workflow from .agents/slice-loop.md:
+- read the required docs
+- work in call-graph/
+- keep the change limited to this slice
+- run relevant verification from call-graph/
+- update docs/call-graph-progress.md
+- summarize changed files, verification, and the next slice
+"

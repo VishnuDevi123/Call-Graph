@@ -15,8 +15,22 @@ export function resolveSameFileCalls(parsedFile: ParsedFile): ParsedFile {
 	const unresolvedCalls: UnresolvedCall[] = [];
 
 	for (const callSite of parsedFile.callSites) {
+		if (callSite.receiver) {
+			const target = findReceiverTarget(parsedFile.nodes, callSite.receiver.className, callSite.calleeName);
+			if (!target) {
+				unresolvedCalls.push(toUnresolvedCall(
+					callSite,
+					`No same-file method matches inferred receiver type ${callSite.receiver.className}.`,
+				));
+				continue;
+			}
+
+			addEdge(edgeGroups, callSite, target, receiverResolutionReason(callSite));
+			continue;
+		}
+
 		if (!isDirectCallExpression(callSite.expression)) {
-			unresolvedCalls.push(toUnresolvedCall(callSite, 'Only direct same-file calls are resolved in this slice.'));
+			unresolvedCalls.push(toUnresolvedCall(callSite, 'Receiver type is dynamic, ambiguous, or unsupported.'));
 			continue;
 		}
 
@@ -29,21 +43,7 @@ export function resolveSameFileCalls(parsedFile: ParsedFile): ParsedFile {
 			continue;
 		}
 
-		const target = candidates[0];
-		const edgeId = `${callSite.callerId}->${target.id}:same-file-direct`;
-		const existingEdge = edgeGroups.get(edgeId);
-		if (existingEdge) {
-			existingEdge.callSites.push(callSite);
-			continue;
-		}
-
-		edgeGroups.set(edgeId, {
-			id: edgeId,
-			fromId: callSite.callerId,
-			toId: target.id,
-			callSites: [callSite],
-			reason: 'same-file direct call',
-		});
+		addEdge(edgeGroups, callSite, candidates[0], 'same-file direct call');
 	}
 
 	return {
@@ -51,6 +51,47 @@ export function resolveSameFileCalls(parsedFile: ParsedFile): ParsedFile {
 		edges: [...edgeGroups.values()],
 		unresolvedCalls,
 	};
+}
+
+function findReceiverTarget(nodes: FunctionNode[], className: string, methodName: string): FunctionNode | undefined {
+	const qualifiedName = `${className}.${methodName}`;
+	const candidates = nodes.filter(node =>
+		(node.kind === 'method' || node.kind === 'asyncMethod')
+		&& node.qualifiedName === qualifiedName,
+	);
+	return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+function receiverResolutionReason(callSite: CallSite): string {
+	switch (callSite.receiver?.kind) {
+		case 'self':
+			return `same-class self call (${callSite.receiver.className})`;
+		case 'cls':
+			return `same-class cls call (${callSite.receiver.className})`;
+		case 'localConstruction':
+			return `local construction inferred as ${callSite.receiver.className}`;
+		case 'localAnnotation':
+			return `local annotation inferred as ${callSite.receiver.className}`;
+		default:
+			return 'same-file receiver call';
+	}
+}
+
+function addEdge(edgeGroups: Map<string, GraphEdge>, callSite: CallSite, target: FunctionNode, reason: string): void {
+	const edgeId = `${callSite.callerId}->${target.id}:${reason}`;
+	const existingEdge = edgeGroups.get(edgeId);
+	if (existingEdge) {
+		existingEdge.callSites.push(callSite);
+		return;
+	}
+
+	edgeGroups.set(edgeId, {
+		id: edgeId,
+		fromId: callSite.callerId,
+		toId: target.id,
+		callSites: [callSite],
+		reason,
+	});
 }
 
 function groupResolvableNodesByName(nodes: FunctionNode[]): Map<string, FunctionNode[]> {
