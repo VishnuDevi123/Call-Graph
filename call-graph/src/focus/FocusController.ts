@@ -1,10 +1,13 @@
 import * as vscode from 'vscode';
 import type { FunctionNode, ParsedFile, SourceRange } from '../analyzer';
 import { buildFocusedGraph } from '../graph/buildFocusedGraph';
+import type { GraphDepth, GraphExpansionDirection } from '../graph/types';
 import { WorkspaceIndexService } from '../indexing';
 import { CallGraphPanel } from '../webview/CallGraphPanel';
 
 const FOCUS_UPDATE_DELAY_MS = 250;
+const DEFAULT_MAX_EXPANSION_DEPTH = 8;
+const DEFAULT_MAX_GRAPH_NODES = 40;
 const FUNCTION_LIKE_KINDS = new Set<FunctionNode['kind']>([
 	'function',
 	'asyncFunction',
@@ -24,6 +27,9 @@ export class FocusController implements vscode.Disposable {
 	private readonly disposables: vscode.Disposable[] = [];
 	private debounceTimer: ReturnType<typeof setTimeout> | undefined;
 	private lastFocusedNodeId: string | undefined;
+	private includeTests = true;
+	private callerDepth: GraphDepth = 1;
+	private calleeDepth: GraphDepth = 1;
 
 	public constructor(private readonly workspaceIndex: WorkspaceIndexService) {
 		this.disposables.push(
@@ -88,18 +94,30 @@ export class FocusController implements vscode.Disposable {
 		}, true);
 	}
 
-	public async revealCurrentFocus(): Promise<void> {
+	public setDirectionalDepth(direction: GraphExpansionDirection, depth: GraphDepth): void {
 		if (!this.lastFocusedNodeId) {
 			return;
 		}
 
-		const indexedNode = this.workspaceIndex.getNode(this.lastFocusedNodeId);
-		if (!indexedNode) {
-			void vscode.window.showWarningMessage('The focused Call Graph node is no longer available. Refresh the index and try again.');
+		if ((direction === 'callers' ? this.callerDepth : this.calleeDepth) === depth) {
 			return;
 		}
 
-		await this.revealSource(indexedNode.uri, indexedNode.node);
+		if (direction === 'callers') {
+			this.callerDepth = depth;
+		} else {
+			this.calleeDepth = depth;
+		}
+		this.publishCurrentFocus();
+	}
+
+	public setIncludeTests(includeTests: boolean): void {
+		if (this.includeTests === includeTests) {
+			return;
+		}
+
+		this.includeTests = includeTests;
+		this.publishCurrentFocus();
 	}
 
 	public dispose(): void {
@@ -139,8 +157,36 @@ export class FocusController implements vscode.Disposable {
 			return;
 		}
 
+		if (focus.node.id !== this.lastFocusedNodeId) {
+			this.callerDepth = 1;
+			this.calleeDepth = 1;
+		}
 		this.lastFocusedNodeId = focus.node.id;
-		CallGraphPanel.currentPanel?.updateGraph(buildFocusedGraph(focus.parsedFile, focus.node));
+		CallGraphPanel.currentPanel?.updateGraph(buildFocusedGraph(this.workspaceIndex.getSnapshot().files, focus.node, this.getGraphBuildOptions()));
+	}
+
+	private publishCurrentFocus(): void {
+		if (!CallGraphPanel.currentPanel || !this.lastFocusedNodeId) {
+			return;
+		}
+
+		const indexedNode = this.workspaceIndex.getNode(this.lastFocusedNodeId);
+		if (!indexedNode) {
+			return;
+		}
+
+		CallGraphPanel.currentPanel.updateGraph(buildFocusedGraph(this.workspaceIndex.getSnapshot().files, indexedNode.node, this.getGraphBuildOptions()));
+	}
+
+	private getGraphBuildOptions(): { callerDepth: GraphDepth; calleeDepth: GraphDepth; maxDepth: number; nodeLimit: number; includeTests: boolean } {
+		const configuration = vscode.workspace.getConfiguration('callGraph');
+		return {
+			callerDepth: this.callerDepth,
+			calleeDepth: this.calleeDepth,
+			maxDepth: clampConfigurationNumber(configuration.get('maxExpansionDepth'), DEFAULT_MAX_EXPANSION_DEPTH, 5, 8),
+			nodeLimit: clampConfigurationNumber(configuration.get('maxGraphNodes'), DEFAULT_MAX_GRAPH_NODES, 5, 250),
+			includeTests: this.includeTests,
+		};
 	}
 
 	private async revealSource(uri: vscode.Uri, node: FunctionNode): Promise<void> {
@@ -186,6 +232,13 @@ export class FocusController implements vscode.Disposable {
 	private isPythonDocument(document: vscode.TextDocument): boolean {
 		return document.languageId === 'python' || document.uri.fsPath.endsWith('.py');
 	}
+}
+
+function clampConfigurationNumber(value: number | undefined, fallback: number, minimum: number, maximum: number): number {
+	if (typeof value !== 'number' || !Number.isFinite(value)) {
+		return fallback;
+	}
+	return Math.min(maximum, Math.max(minimum, Math.floor(value)));
 }
 
 function containsPosition(range: SourceRange, position: vscode.Position): boolean {

@@ -90,6 +90,39 @@ suite('PythonParser', () => {
 		);
 	});
 
+	test('collects import bindings for direct, module, relative, and wildcard imports', () => {
+		const parsed = parser.parse({
+			filePath: 'pkg/feature.py',
+			source: [
+				'import helpers',
+				'import pkg.service as service',
+				'from pkg.worker import run as run_worker',
+				'from .local import build',
+				'from .plugins import *',
+				'',
+			].join('\n'),
+		});
+
+		assert.deepStrictEqual(
+			parsed.imports.map(binding => {
+				if (binding.kind === 'module') {
+					return [binding.kind, binding.moduleName, binding.localName];
+				}
+				if (binding.kind === 'direct') {
+					return [binding.kind, binding.moduleName, binding.importedName, binding.localName, binding.relativeLevel];
+				}
+				return [binding.kind, binding.moduleName, binding.relativeLevel];
+			}),
+			[
+				['module', 'helpers', 'helpers'],
+				['module', 'pkg.service', 'service'],
+				['direct', 'pkg.worker', 'run', 'run_worker', 0],
+				['direct', 'local', 'build', 'build', 1],
+				['wildcard', 'plugins', 1],
+			],
+		);
+	});
+
 	test('reports syntax diagnostics without throwing', () => {
 		const parsed = parser.parse({
 			filePath: 'broken.py',

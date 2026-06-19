@@ -1,6 +1,6 @@
 import * as Parser from 'web-tree-sitter';
 import type { ParseInput, SourceParser } from '../parser';
-import type { CallSite, FunctionKind, FunctionNode, ParseDiagnostic, ParsedFile, SourceRange } from '../types';
+import type { CallSite, FunctionKind, FunctionNode, ImportBinding, ParseDiagnostic, ParsedFile, SourceRange } from '../types';
 
 type SyntaxNode = Parser.Node;
 
@@ -46,16 +46,18 @@ export class PythonParser implements SourceParser {
 		const root = tree.rootNode;
 		const nodes: FunctionNode[] = [];
 		const callSites: CallSite[] = [];
+		const imports: ImportBinding[] = [];
 		const moduleNode = this.createFunctionNode(input.filePath, '<module>', '<module>', 'module', root, root);
 
 		nodes.push(moduleNode);
-		this.walkStatements(root, input.filePath, [{ qualifiedName: '<module>', nodeId: moduleNode.id, isFunction: false }], nodes, callSites);
+		this.walkStatements(root, input.filePath, [{ qualifiedName: '<module>', nodeId: moduleNode.id, isFunction: false }], nodes, callSites, imports);
 
 		return {
 			languageId: this.languageId,
 			filePath: input.filePath,
 			nodes,
 			callSites,
+			imports,
 			edges: [],
 			unresolvedCalls: [],
 			externalCalls: [],
@@ -63,46 +65,51 @@ export class PythonParser implements SourceParser {
 		};
 	}
 
-	private walkStatements(node: SyntaxNode, filePath: string, scopes: Scope[], nodes: FunctionNode[], callSites: CallSite[]): void {
+	private walkStatements(node: SyntaxNode, filePath: string, scopes: Scope[], nodes: FunctionNode[], callSites: CallSite[], imports: ImportBinding[]): void {
 		for (const child of node.namedChildren) {
 			const definition = this.unwrapDecoratedDefinition(child);
 
 			if (definition?.type === 'class_definition') {
-				this.visitClass(definition, filePath, scopes, nodes, callSites);
+				this.visitClass(definition, filePath, scopes, nodes, callSites, imports);
 				continue;
 			}
 
 			if (definition?.type === 'function_definition') {
-				this.visitFunction(definition, child, filePath, scopes, nodes, callSites);
+				this.visitFunction(definition, child, filePath, scopes, nodes, callSites, imports);
+				continue;
+			}
+
+			if (child.type === 'import_statement' || child.type === 'import_from_statement') {
+				imports.push(...this.parseImportBindings(child));
 				continue;
 			}
 
 			this.invalidateNestedLocalBindings(child, scopes.at(-1));
 			this.updateLocalTypeBindings(child, scopes.at(-1));
 			this.collectCalls(child, scopes.at(-1), callSites);
-			this.walkNestedDefinitions(child, filePath, scopes, nodes, callSites);
+			this.walkNestedDefinitions(child, filePath, scopes, nodes, callSites, imports);
 		}
 	}
 
-	private walkNestedDefinitions(node: SyntaxNode, filePath: string, scopes: Scope[], nodes: FunctionNode[], callSites: CallSite[]): void {
+	private walkNestedDefinitions(node: SyntaxNode, filePath: string, scopes: Scope[], nodes: FunctionNode[], callSites: CallSite[], imports: ImportBinding[]): void {
 		for (const child of node.namedChildren) {
 			const definition = this.unwrapDecoratedDefinition(child);
 
 			if (definition?.type === 'class_definition') {
-				this.visitClass(definition, filePath, scopes, nodes, callSites);
+				this.visitClass(definition, filePath, scopes, nodes, callSites, imports);
 				continue;
 			}
 
 			if (definition?.type === 'function_definition') {
-				this.visitFunction(definition, child, filePath, scopes, nodes, callSites);
+				this.visitFunction(definition, child, filePath, scopes, nodes, callSites, imports);
 				continue;
 			}
 
-			this.walkNestedDefinitions(child, filePath, scopes, nodes, callSites);
+			this.walkNestedDefinitions(child, filePath, scopes, nodes, callSites, imports);
 		}
 	}
 
-	private visitClass(node: SyntaxNode, filePath: string, scopes: Scope[], nodes: FunctionNode[], callSites: CallSite[]): void {
+	private visitClass(node: SyntaxNode, filePath: string, scopes: Scope[], nodes: FunctionNode[], callSites: CallSite[], imports: ImportBinding[]): void {
 		const nameNode = node.childForFieldName('name');
 		if (!nameNode) {
 			return;
@@ -114,11 +121,11 @@ export class PythonParser implements SourceParser {
 
 		const body = node.childForFieldName('body');
 		if (body) {
-			this.walkStatements(body, filePath, [...scopes, { qualifiedName, nodeId: classNode.id, className: nameNode.text, isFunction: false }], nodes, callSites);
+			this.walkStatements(body, filePath, [...scopes, { qualifiedName, nodeId: classNode.id, className: nameNode.text, isFunction: false }], nodes, callSites, imports);
 		}
 	}
 
-	private visitFunction(node: SyntaxNode, declarationNode: SyntaxNode, filePath: string, scopes: Scope[], nodes: FunctionNode[], callSites: CallSite[]): void {
+	private visitFunction(node: SyntaxNode, declarationNode: SyntaxNode, filePath: string, scopes: Scope[], nodes: FunctionNode[], callSites: CallSite[], imports: ImportBinding[]): void {
 		const nameNode = node.childForFieldName('name');
 		if (!nameNode) {
 			return;
@@ -139,8 +146,61 @@ export class PythonParser implements SourceParser {
 				localTypes: new Map(),
 				receiverClassName: kind === 'method' || kind === 'asyncMethod' ? scopes.at(-1)?.className : undefined,
 				allowsClsReceiver: this.hasDecorator(declarationNode, 'classmethod'),
-			}], nodes, callSites);
+			}], nodes, callSites, imports);
 		}
+	}
+
+	private parseImportBindings(node: SyntaxNode): ImportBinding[] {
+		const text = node.text.trim();
+		if (node.type === 'import_statement') {
+			const match = /^import\s+(.+)$/.exec(text);
+			if (!match) {
+				return [];
+			}
+			return match[1].split(',')
+				.map(part => /^([A-Za-z_][A-Za-z0-9_.]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?$/.exec(part.trim()))
+				.filter((match): match is RegExpExecArray => Boolean(match))
+				.map(match => ({
+					kind: 'module',
+					moduleName: match[1],
+					localName: match[2] ?? match[1].split('.')[0],
+					range: toRange(node),
+				}));
+		}
+
+		const match = /^from\s+([.A-Za-z_][A-Za-z0-9_.]*)\s+import\s+(.+)$/.exec(text);
+		if (!match) {
+			return [];
+		}
+
+		const moduleExpression = match[1];
+		const relativeLevel = moduleExpression.match(/^\.+/)?.[0].length ?? 0;
+		const moduleName = moduleExpression.slice(relativeLevel);
+		const bindings: ImportBinding[] = [];
+		for (const part of match[2].split(',').map(part => part.trim())) {
+			if (part === '*') {
+				bindings.push({
+					kind: 'wildcard',
+					moduleName,
+					relativeLevel,
+					range: toRange(node),
+				});
+				continue;
+			}
+
+			const importMatch = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?$/.exec(part);
+			if (importMatch) {
+				bindings.push({
+					kind: 'direct',
+					moduleName,
+					importedName: importMatch[1],
+					localName: importMatch[2] ?? importMatch[1],
+					relativeLevel,
+					range: toRange(node),
+				});
+			}
+		}
+		return bindings;
 	}
 
 	private collectCalls(node: SyntaxNode, scope: Scope | undefined, callSites: CallSite[]): void {

@@ -37,6 +37,7 @@ function parsedFile(filePath: string, hasError = false): ParsedFile {
 		filePath,
 		nodes: [],
 		callSites: [],
+		imports: [],
 		edges: [],
 		unresolvedCalls: [],
 		externalCalls: [],

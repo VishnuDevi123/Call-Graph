@@ -12,7 +12,9 @@
   "activationEvents": [
     "onCommand:call-graph.open",
     "onCommand:call-graph.focusCurrentFunction",
-    "onCommand:call-graph.refreshIndex"
+    "onCommand:call-graph.refreshIndex",
+    "onCommand:call-graph.revealCallers",
+    "onCommand:call-graph.revealCallees"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -28,6 +30,14 @@
       {
         "command": "call-graph.focusCurrentFunction",
         "title": "Focus Call Graph on Current Function"
+      },
+      {
+        "command": "call-graph.revealCallers",
+        "title": "Reveal Callers"
+      },
+      {
+        "command": "call-graph.revealCallees",
+        "title": "Reveal Callees"
       }
     ],
     "menus": {
@@ -38,6 +48,25 @@
           "group": "navigation"
         }
       ]
+    },
+    "configuration": {
+      "title": "Call Graph",
+      "properties": {
+        "callGraph.maxExpansionDepth": {
+          "type": "number",
+          "default": 8,
+          "minimum": 5,
+          "maximum": 8,
+          "description": "Traversal depth used by the global Max caller/callee depth controls."
+        },
+        "callGraph.maxGraphNodes": {
+          "type": "number",
+          "default": 40,
+          "minimum": 5,
+          "maximum": 250,
+          "description": "Maximum number of nodes to render in the focused call graph."
+        }
+      }
     }
   },
   "scripts": {
@@ -53,7 +82,7 @@
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
     "test": "npm run test:unit && npm run test:vscode",
-    "test:unit": "mocha --ui tdd \"out/test/analyzer/**/*.test.js\"",
+    "test:unit": "mocha --ui tdd \"out/test/analyzer/**/*.test.js\" \"out/test/webview/**/*.test.js\"",
     "test:vscode": "vscode-test"
   },
   "devDependencies": {

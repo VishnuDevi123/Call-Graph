@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { PythonParser, resolveSameFileCalls } from '../analyzer';
+import { PythonParser, resolveSameFileCalls, resolveWorkspaceImports } from '../analyzer';
 import type { FunctionNode, ParsedFile, ParseDiagnostic } from '../analyzer';
 import { chooseParsedFileUpdate } from './updatePolicy';
 
@@ -104,12 +104,13 @@ export class WorkspaceIndexService implements vscode.Disposable {
 
 		if (decision.accepted && decision.parsedFile) {
 			this.lastGoodFiles.set(file.toString(), decision.parsedFile);
+			this.rebuildWorkspaceResolutions();
 			this.updatedAt = new Date();
 		}
 
 		return {
 			status: decision.accepted ? 'updated' : 'parseError',
-			parsedFile: decision.parsedFile,
+			parsedFile: decision.accepted ? this.lastGoodFiles.get(file.toString()) : decision.parsedFile,
 			diagnostics,
 			retainedLastGood: decision.retainedLastGood,
 		};
@@ -180,6 +181,7 @@ export class WorkspaceIndexService implements vscode.Disposable {
 		}
 
 		this.removeDeletedFiles(files);
+		this.rebuildWorkspaceResolutions();
 		this.updatedAt = new Date();
 		const snapshot = this.createSnapshot(files.length);
 
@@ -254,5 +256,13 @@ export class WorkspaceIndexService implements vscode.Disposable {
 			discoveredFileCount,
 			updatedAt: this.updatedAt,
 		};
+	}
+
+	private rebuildWorkspaceResolutions(): void {
+		const entries = [...this.lastGoodFiles.entries()];
+		const resolvedFiles = resolveWorkspaceImports(entries.map(([, file]) => file));
+		for (let index = 0; index < entries.length; index += 1) {
+			this.lastGoodFiles.set(entries[index][0], resolvedFiles[index]);
+		}
 	}
 }

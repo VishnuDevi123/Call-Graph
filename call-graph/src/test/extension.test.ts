@@ -9,10 +9,17 @@ suite('Extension Test Suite', () => {
 		const commands = await vscode.commands.getCommands(true);
 
 		assert.ok(commands.includes('call-graph.open'));
+		assert.ok(commands.includes('call-graph.revealCallers'));
+		assert.ok(commands.includes('call-graph.revealCallees'));
 		assert.ok(!commands.includes('call-graph.helloWorld'));
 	});
 
 	test('opens Call Graph webview command without throwing', async () => {
 		await vscode.commands.executeCommand('call-graph.open');
+	});
+
+	test('reveal commands open or reveal Call Graph without throwing', async () => {
+		await vscode.commands.executeCommand('call-graph.revealCallers');
+		await vscode.commands.executeCommand('call-graph.revealCallees');
 	});
 });
