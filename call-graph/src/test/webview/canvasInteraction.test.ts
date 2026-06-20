@@ -47,6 +47,17 @@ suite('webview canvas interaction and graph labels', () => {
 		assert.strictEqual(source.includes('edge-label'), false);
 		assert.strictEqual(source.includes('graphEdge.label'), false);
 	});
+
+	test('does not render graph role headings or unresolved and external sections', () => {
+		const source = clientSource('graphRenderer.ts');
+
+		assert.strictEqual(source.includes("'Callers'"), false);
+		assert.strictEqual(source.includes("'Focused Function'"), false);
+		assert.strictEqual(source.includes("'Callees'"), false);
+		assert.strictEqual(source.includes("'Unresolved calls'"), false);
+		assert.strictEqual(source.includes("'External calls'"), false);
+		assert.strictEqual(source.includes('renderDetails'), false);
+	});
 });
 
 function clientSource(file: string): string {

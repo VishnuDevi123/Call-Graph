@@ -1,3 +1,5 @@
+import type { SourceRange } from '../analyzer';
+
 export type GraphExpansionDirection = 'callers' | 'callees';
 export type GraphDepth = 1 | 2 | 3 | 4 | 5 | 'max';
 
@@ -8,7 +10,13 @@ export interface GraphNode {
 	line: number;
 	role: 'caller' | 'focus' | 'callee';
 	depth: number;
-	isFileContext?: boolean;
+}
+
+export interface GraphEdgeCallSite {
+	id: string;
+	expression: string;
+	filePath: string;
+	range: SourceRange;
 }
 
 export interface GraphEdge {
@@ -16,6 +24,8 @@ export interface GraphEdge {
 	from: string;
 	to: string;
 	label: string;
+	callCount: number;
+	callSites: GraphEdgeCallSite[];
 }
 
 export interface GraphModel {
@@ -23,9 +33,9 @@ export interface GraphModel {
 	includeTests: boolean;
 	nodes: GraphNode[];
 	edges: GraphEdge[];
-	unresolvedCalls: string[];
-	externalCalls: string[];
 	limitReached: boolean;
+	omittedDirectRelationshipCount: number;
+	largeGraphWarning: boolean;
 	callerDepth: GraphDepth;
 	calleeDepth: GraphDepth;
 	maxDepth: number;

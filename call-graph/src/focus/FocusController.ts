@@ -1,13 +1,14 @@
 import * as vscode from 'vscode';
 import type { FunctionNode, ParsedFile, SourceRange } from '../analyzer';
 import { buildFocusedGraph } from '../graph/buildFocusedGraph';
+import { GraphSessionState } from '../graph/GraphSessionState';
 import type { GraphDepth, GraphExpansionDirection } from '../graph/types';
 import { WorkspaceIndexService } from '../indexing';
 import { CallGraphPanel } from '../webview/CallGraphPanel';
 
 const FOCUS_UPDATE_DELAY_MS = 250;
 const DEFAULT_MAX_EXPANSION_DEPTH = 8;
-const DEFAULT_MAX_GRAPH_NODES = 40;
+const DEFAULT_MAX_GRAPH_NODES = 30;
 const FUNCTION_LIKE_KINDS = new Set<FunctionNode['kind']>([
 	'function',
 	'asyncFunction',
@@ -26,10 +27,8 @@ export interface FocusUpdate {
 export class FocusController implements vscode.Disposable {
 	private readonly disposables: vscode.Disposable[] = [];
 	private debounceTimer: ReturnType<typeof setTimeout> | undefined;
-	private lastFocusedNodeId: string | undefined;
 	private includeTests = true;
-	private callerDepth: GraphDepth = 1;
-	private calleeDepth: GraphDepth = 1;
+	private readonly sessionState = new GraphSessionState();
 
 	public constructor(private readonly workspaceIndex: WorkspaceIndexService) {
 		this.disposables.push(
@@ -95,19 +94,14 @@ export class FocusController implements vscode.Disposable {
 	}
 
 	public setDirectionalDepth(direction: GraphExpansionDirection, depth: GraphDepth): void {
-		if (!this.lastFocusedNodeId) {
+		if (!this.sessionState.focusNodeId) {
 			return;
 		}
 
-		if ((direction === 'callers' ? this.callerDepth : this.calleeDepth) === depth) {
+		if (!this.sessionState.setDepth(direction, depth)) {
 			return;
 		}
 
-		if (direction === 'callers') {
-			this.callerDepth = depth;
-		} else {
-			this.calleeDepth = depth;
-		}
 		this.publishCurrentFocus();
 	}
 
@@ -153,24 +147,20 @@ export class FocusController implements vscode.Disposable {
 			return;
 		}
 
-		if (!forcePublish && focus.node.id === this.lastFocusedNodeId) {
+		if (!forcePublish && focus.node.id === this.sessionState.focusNodeId) {
 			return;
 		}
 
-		if (focus.node.id !== this.lastFocusedNodeId) {
-			this.callerDepth = 1;
-			this.calleeDepth = 1;
-		}
-		this.lastFocusedNodeId = focus.node.id;
+		this.sessionState.setFocusNode(focus.node.id);
 		CallGraphPanel.currentPanel?.updateGraph(buildFocusedGraph(this.workspaceIndex.getSnapshot().files, focus.node, this.getGraphBuildOptions()));
 	}
 
 	private publishCurrentFocus(): void {
-		if (!CallGraphPanel.currentPanel || !this.lastFocusedNodeId) {
+		if (!CallGraphPanel.currentPanel || !this.sessionState.focusNodeId) {
 			return;
 		}
 
-		const indexedNode = this.workspaceIndex.getNode(this.lastFocusedNodeId);
+		const indexedNode = this.workspaceIndex.getNode(this.sessionState.focusNodeId);
 		if (!indexedNode) {
 			return;
 		}
@@ -181,8 +171,8 @@ export class FocusController implements vscode.Disposable {
 	private getGraphBuildOptions(): { callerDepth: GraphDepth; calleeDepth: GraphDepth; maxDepth: number; nodeLimit: number; includeTests: boolean } {
 		const configuration = vscode.workspace.getConfiguration('callGraph');
 		return {
-			callerDepth: this.callerDepth,
-			calleeDepth: this.calleeDepth,
+			callerDepth: this.sessionState.callerDepth,
+			calleeDepth: this.sessionState.calleeDepth,
 			maxDepth: clampConfigurationNumber(configuration.get('maxExpansionDepth'), DEFAULT_MAX_EXPANSION_DEPTH, 5, 8),
 			nodeLimit: clampConfigurationNumber(configuration.get('maxGraphNodes'), DEFAULT_MAX_GRAPH_NODES, 5, 250),
 			includeTests: this.includeTests,

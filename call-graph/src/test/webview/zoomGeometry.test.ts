@@ -148,16 +148,27 @@ function sampleGraph(): GraphModel {
 			node('callee', 'callee', 'callee', 1),
 		],
 		edges: [
-			{ id: 'caller-focus', from: 'caller', to: 'focus', label: 'direct call' },
-			{ id: 'focus-callee', from: 'focus', to: 'callee', label: 'direct call' },
+			edge('caller-focus', 'caller', 'focus'),
+			edge('focus-callee', 'focus', 'callee'),
 		],
-		unresolvedCalls: [],
-		externalCalls: [],
 		limitReached: false,
+		omittedDirectRelationshipCount: 0,
+		largeGraphWarning: false,
 		callerDepth: 1,
 		calleeDepth: 1,
 		maxDepth: 8,
-		nodeLimit: 40,
+		nodeLimit: 30,
+	};
+}
+
+function edge(id: string, from: string, to: string): GraphModel['edges'][number] {
+	return {
+		id,
+		from,
+		to,
+		label: 'direct call',
+		callCount: 1,
+		callSites: [],
 	};
 }
 

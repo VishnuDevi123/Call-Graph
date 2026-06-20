@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import { PythonParser, resolveSameFileCalls } from '../../analyzer';
 import type { FunctionNode, ParsedFile } from '../../analyzer';
 import { buildFocusedGraph } from '../../graph/buildFocusedGraph';
+import { GraphSessionState } from '../../graph/GraphSessionState';
 
 suite('focused graph expansion', () => {
 	let parser: PythonParser;
@@ -33,6 +34,7 @@ suite('focused graph expansion', () => {
 		]);
 		assert.strictEqual(graph.callerDepth, 1);
 		assert.strictEqual(graph.calleeDepth, 1);
+		assert.strictEqual(graph.nodeLimit, 30);
 		assert.strictEqual(graph.nodes.some(graphNode => graphNode.label === 'leaf'), false);
 	});
 
@@ -59,7 +61,6 @@ suite('focused graph expansion', () => {
 		});
 
 		assert.deepStrictEqual(labelsByRole(expanded.nodes), [
-			['<module>', 'caller', 1],
 			['focus', 'focus', 0],
 			['first', 'callee', 1],
 			['other', 'callee', 1],
@@ -114,8 +115,8 @@ suite('focused graph expansion', () => {
 			['focus', 'focus', 0],
 		]);
 		assert.deepStrictEqual(edgeLabels(graph), [
-			['upstream', 'focus'],
 			['focus', 'upstream'],
+			['upstream', 'focus'],
 		]);
 	});
 
@@ -177,6 +178,7 @@ suite('focused graph expansion', () => {
 		assert.strictEqual(depthLimited.nodes.some(graphNode => graphNode.label === 'three'), false);
 		assert.strictEqual(sizeLimited.limitReached, true);
 		assert.strictEqual(sizeLimited.nodes.length, 2);
+		assert.strictEqual(sizeLimited.omittedDirectRelationshipCount, 1);
 	});
 
 	test('includes tests by default and hides test-file relationships on request', () => {
@@ -207,34 +209,143 @@ suite('focused graph expansion', () => {
 		assert.strictEqual(hidden.nodes.some(graphNode => graphNode.label === 'test_run'), false);
 	});
 
-	test('uses the existing module as callerless function file context without an edge', () => {
+	test('does not add module context to a callerless function', () => {
 		const parsed = parse([
 			'def focus():',
 			'    pass',
 		]);
 		const graph = buildFocusedGraph([parsed], node(parsed, 'focus'));
-		const fileContext = graph.nodes.find(graphNode => graphNode.isFileContext);
 
-		assert.ok(fileContext);
-		assert.strictEqual(fileContext.label, '<module>');
-		assert.strictEqual(fileContext.role, 'caller');
-		assert.strictEqual(fileContext.depth, 1);
-		assert.strictEqual(fileContext.filePath, 'graph.py');
-		assert.strictEqual(graph.edges.some(edge => edge.from === fileContext.id || edge.to === fileContext.id), false);
+		assert.deepStrictEqual(labelsByRole(graph.nodes), [
+			['focus', 'focus', 0],
+		]);
 	});
 
-	test('does not add file context when a real direct caller exists', () => {
+	test('keeps truthful module relationships and supports module focus', () => {
+		const parsed = parse([
+			'focus()',
+			'',
+			'def caller():',
+			'    focus()',
+			'',
+			'def focus():',
+			'    callee()',
+			'',
+			'def callee():',
+			'    pass',
+		]);
+		const focusedFunction = buildFocusedGraph([parsed], node(parsed, 'focus'));
+		const focusedModule = buildFocusedGraph([parsed], node(parsed, '<module>'));
+
+		assert.deepStrictEqual(labelsByRole(focusedFunction.nodes), [
+			['<module>', 'caller', 1],
+			['caller', 'caller', 1],
+			['focus', 'focus', 0],
+			['callee', 'callee', 1],
+		]);
+		assert.deepStrictEqual(labelsByRole(focusedModule.nodes), [
+			['<module>', 'focus', 0],
+			['focus', 'callee', 1],
+		]);
+	});
+
+	test('prioritizes every direct relationship before deeper nodes', () => {
+		const parsed = parse([
+			'def focus():',
+			'    first()',
+			'    second()',
+			'',
+			'def first():',
+			'    deeper()',
+			'',
+			'def second():',
+			'    pass',
+			'',
+			'def deeper():',
+			'    pass',
+		]);
+		const graph = buildFocusedGraph([parsed], node(parsed, 'focus'), {
+			calleeDepth: 2,
+			nodeLimit: 3,
+		});
+
+		assert.strictEqual(graph.nodes.some(graphNode => graphNode.label === 'first'), true);
+		assert.strictEqual(graph.nodes.some(graphNode => graphNode.label === 'second'), true);
+		assert.strictEqual(graph.nodes.some(graphNode => graphNode.label === 'deeper'), false);
+		assert.strictEqual(graph.omittedDirectRelationshipCount, 0);
+	});
+
+	test('truncates direct relationships deterministically and reports omissions', () => {
 		const parsed = parse([
 			'def caller():',
 			'    focus()',
 			'',
 			'def focus():',
+			'    first()',
+			'    second()',
+			'',
+			'def first():',
+			'    pass',
+			'',
+			'def second():',
+			'    pass',
+		]);
+		const reordered = {
+			...parsed,
+			nodes: [...parsed.nodes].reverse(),
+			edges: [...parsed.edges].reverse(),
+		};
+		const options = { nodeLimit: 3 };
+		const normal = buildFocusedGraph([parsed], node(parsed, 'focus'), options);
+		const reversed = buildFocusedGraph([reordered], node(reordered, 'focus'), options);
+
+		assert.deepStrictEqual(normal.nodes, reversed.nodes);
+		assert.deepStrictEqual(normal.edges, reversed.edges);
+		assert.strictEqual(normal.nodes.length, 3);
+		assert.strictEqual(normal.omittedDirectRelationshipCount, 1);
+	});
+
+	test('retains edge call count and source locations', () => {
+		const parsed = parse([
+			'def focus():',
+			'    callee()',
+			'    callee()',
+			'',
+			'def callee():',
 			'    pass',
 		]);
 		const graph = buildFocusedGraph([parsed], node(parsed, 'focus'));
+		const edge = graph.edges[0];
 
-		assert.strictEqual(graph.nodes.some(graphNode => graphNode.isFileContext), false);
-		assert.strictEqual(graph.nodes.some(graphNode => graphNode.label === 'caller'), true);
+		assert.ok(edge);
+		assert.strictEqual(edge.callCount, 2);
+		assert.strictEqual(edge.callSites.length, 2);
+		assert.deepStrictEqual(edge.callSites.map(callSite => callSite.expression), ['callee', 'callee']);
+		assert.deepStrictEqual(edge.callSites.map(callSite => callSite.filePath), ['graph.py', 'graph.py']);
+		assert.deepStrictEqual(edge.callSites.map(callSite => callSite.range.start.line), [2, 3]);
+	});
+
+	test('preserves directional depths across focus changes within a graph session', () => {
+		const state = new GraphSessionState();
+
+		assert.strictEqual(state.callerDepth, 1);
+		assert.strictEqual(state.calleeDepth, 1);
+		assert.strictEqual(state.setDepth('callers', 4), true);
+		assert.strictEqual(state.setDepth('callees', 'max'), true);
+		assert.strictEqual(state.setFocusNode('first'), true);
+		assert.deepStrictEqual([state.callerDepth, state.calleeDepth], [4, 'max']);
+		assert.strictEqual(state.setFocusNode('second'), true);
+		assert.deepStrictEqual([state.callerDepth, state.calleeDepth], [4, 'max']);
+	});
+
+	test('warns when configured graph requests exceed one hundred nodes', () => {
+		const parsed = parse([
+			'def focus():',
+			'    pass',
+		]);
+
+		assert.strictEqual(buildFocusedGraph([parsed], node(parsed, 'focus'), { nodeLimit: 100 }).largeGraphWarning, false);
+		assert.strictEqual(buildFocusedGraph([parsed], node(parsed, 'focus'), { nodeLimit: 101 }).largeGraphWarning, true);
 	});
 
 	function parse(lines: string[]): ParsedFile {
@@ -257,5 +368,7 @@ function labelsByRole(nodes: ReturnType<typeof buildFocusedGraph>['nodes']): Arr
 
 function edgeLabels(graph: ReturnType<typeof buildFocusedGraph>): Array<[string | undefined, string | undefined]> {
 	const nodesById = new Map(graph.nodes.map(graphNode => [graphNode.id, graphNode.label]));
-	return graph.edges.map(edge => [nodesById.get(edge.from), nodesById.get(edge.to)]);
+	return graph.edges
+		.map(edge => [nodesById.get(edge.from), nodesById.get(edge.to)] as [string | undefined, string | undefined])
+		.sort((left, right) => `${left[0]}:${left[1]}`.localeCompare(`${right[0]}:${right[1]}`));
 }

@@ -1,8 +1,8 @@
 import type { GraphSceneGeometry, SceneNodeGeometry } from './sceneGeometry';
 
-export const MIN_ZOOM = 0.55;
-export const MAX_ZOOM = 1.8;
-export const ZOOM_STEP = 0.05;
+export const MIN_ZOOM = 0.45;
+export const MAX_ZOOM = 1.6;
+export const ZOOM_STEP = 0.02;
 
 export interface ZoomTransitionInput {
 	currentZoom: number;

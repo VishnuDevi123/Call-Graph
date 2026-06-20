@@ -20,19 +20,22 @@ export function renderGraph(
 	if (graph.limitReached) {
 		const limit = document.createElement('div');
 		limit.className = 'limit';
-		limit.textContent = 'Graph limit reached. Reduce Depth Left or Depth Right to show fewer nodes.';
-		limit.style.top = `${scene.detailsY - 46}px`;
+		limit.textContent = graph.omittedDirectRelationshipCount > 0
+			? `Graph limit reached. ${graph.omittedDirectRelationshipCount} direct relationship${graph.omittedDirectRelationshipCount === 1 ? '' : 's'} omitted.`
+			: 'Graph limit reached. Reduce Depth Left or Depth Right to show fewer nodes.';
+		limit.style.top = '8px';
 		elements.canvas.appendChild(limit);
 	}
-	renderGroup(document, elements.canvas, graph, scene, 'Callers', 'caller', animateFocus, vscode);
-	renderGroup(document, elements.canvas, graph, scene, 'Focused Function', 'focus', animateFocus, vscode);
-	renderGroup(document, elements.canvas, graph, scene, 'Callees', 'callee', animateFocus, vscode);
-	const details = document.createElement('section');
-	details.className = 'details';
-	details.style.top = `${scene.detailsY}px`;
-	details.appendChild(renderDetails(document, 'Unresolved calls', graph.unresolvedCalls));
-	details.appendChild(renderDetails(document, 'External calls', graph.externalCalls));
-	elements.canvas.appendChild(details);
+	if (graph.largeGraphWarning) {
+		const warning = document.createElement('div');
+		warning.className = 'limit';
+		warning.textContent = 'Graphs above 100 nodes may lay out slowly.';
+		warning.style.top = graph.limitReached ? '36px' : '8px';
+		elements.canvas.appendChild(warning);
+	}
+	renderGroup(document, elements.canvas, graph, scene, 'caller', animateFocus, vscode);
+	renderGroup(document, elements.canvas, graph, scene, 'focus', animateFocus, vscode);
+	renderGroup(document, elements.canvas, graph, scene, 'callee', animateFocus, vscode);
 	requestAnimationFrame(() => {
 		renderEdges(elements.canvas, scene);
 		afterRender();
@@ -49,7 +52,6 @@ function renderGroup(
 	canvas: HTMLElement,
 	graph: GraphModel,
 	scene: GraphSceneGeometry,
-	label: string,
 	role: GraphNode['role'],
 	animateFocus: boolean,
 	vscode: VsCodeApi,
@@ -59,12 +61,12 @@ function renderGroup(
 		return;
 	}
 	const group = document.createElement('section');
-	group.className = 'group group-label';
+	group.className = 'group';
 	group.dataset.direction = role === 'caller' ? 'callers' : role === 'callee' ? 'callees' : 'focus';
 	group.style.left = `${geometry.x}px`;
 	group.style.top = `${geometry.y}px`;
 	group.style.width = `${geometry.width}px`;
-	group.textContent = label;
+	group.setAttribute('aria-hidden', 'true');
 	canvas.appendChild(group);
 	const nodes = graph.nodes.filter(node => node.role === role);
 	if (nodes.length === 0) {
@@ -122,19 +124,4 @@ function nodeElement(
 	});
 	wrapper.appendChild(button);
 	return wrapper;
-}
-
-function renderDetails(document: Document, title: string, calls: string[]): HTMLDetailsElement {
-	const detail = document.createElement('details');
-	const summary = document.createElement('summary');
-	summary.textContent = `${title} (${calls.length})`;
-	detail.appendChild(summary);
-	const list = document.createElement('ul');
-	for (const call of calls) {
-		const item = document.createElement('li');
-		item.textContent = call;
-		list.appendChild(item);
-	}
-	detail.appendChild(list);
-	return detail;
 }

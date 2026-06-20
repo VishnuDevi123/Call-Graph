@@ -108,8 +108,8 @@ suite('webview scene geometry', () => {
 			node('callee-two', 'callee-two', 'callee', 2),
 		);
 		graph.edges.push(
-			{ id: 'caller-two-caller', from: 'caller-two', to: 'caller', label: 'direct call' },
-			{ id: 'callee-callee-two', from: 'callee', to: 'callee-two', label: 'direct call' },
+			edge('caller-two-caller', 'caller-two', 'caller'),
+			edge('callee-callee-two', 'callee', 'callee-two'),
 		);
 		const scene = createSceneGeometry(graph);
 		const nodes = new Map(scene.nodes.map(candidate => [candidate.id, candidate]));
@@ -141,16 +141,27 @@ function sampleGraph(): GraphModel {
 			node('callee', 'callee', 'callee', 1),
 		],
 		edges: [
-			{ id: 'caller-focus', from: 'caller', to: 'focus', label: 'direct call' },
-			{ id: 'focus-callee', from: 'focus', to: 'callee', label: 'direct call' },
+			edge('caller-focus', 'caller', 'focus'),
+			edge('focus-callee', 'focus', 'callee'),
 		],
-		unresolvedCalls: [],
-		externalCalls: [],
 		limitReached: false,
+		omittedDirectRelationshipCount: 0,
+		largeGraphWarning: false,
 		callerDepth: 1,
 		calleeDepth: 1,
 		maxDepth: 8,
-		nodeLimit: 40,
+		nodeLimit: 30,
+	};
+}
+
+function edge(id: string, from: string, to: string): GraphModel['edges'][number] {
+	return {
+		id,
+		from,
+		to,
+		label: 'direct call',
+		callCount: 1,
+		callSites: [],
 	};
 }
 

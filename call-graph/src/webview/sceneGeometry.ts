@@ -1,12 +1,12 @@
+// this file
+
 import type { GraphEdge, GraphModel, GraphNode } from '../graph/types';
 
+// constants defining the layout and sizing of the call graph scene
 const SCENE_PADDING_X = 40;
 const SCENE_PADDING_TOP = 30;
-const GROUP_LABEL_HEIGHT = 22;
-const NODE_START_Y = SCENE_PADDING_TOP + GROUP_LABEL_HEIGHT + 16;
+const NODE_START_Y = SCENE_PADDING_TOP + 16;
 const NODE_SLOT_HEIGHT = 150;
-const DETAILS_HEIGHT = 150;
-const DETAILS_GAP = 28;
 const SIDE_NODE_WIDTH = 240;
 const SIDE_NODE_HEIGHT = 86;
 const FOCUS_NODE_WIDTH = 280;
@@ -47,7 +47,6 @@ export interface SceneEdgeGeometry {
 export interface GraphSceneGeometry {
 	width: number;
 	height: number;
-	detailsY: number;
 	nodes: SceneNodeGeometry[];
 	groups: SceneGroupGeometry[];
 	edges: SceneEdgeGeometry[];
@@ -62,7 +61,6 @@ export function createSceneGeometry(graph: GraphModel): GraphSceneGeometry {
 	const focusX = SCENE_PADDING_X + visibleCallerColumns * COLUMN_STEP;
 	const largestColumnSize = Math.max(1, ...[...nodesByColumn.values()].map(nodes => nodes.length));
 	const graphHeight = largestColumnSize * NODE_SLOT_HEIGHT;
-	const detailsY = NODE_START_Y + graphHeight + DETAILS_GAP;
 	const nodes = [...nodesByColumn.entries()]
 		.sort(([left], [right]) => left - right)
 		.flatMap(([level, columnNodes]) => positionColumn(columnNodes, level, focusX, graphHeight));
@@ -71,8 +69,7 @@ export function createSceneGeometry(graph: GraphModel): GraphSceneGeometry {
 
 	return {
 		width,
-		height: detailsY + DETAILS_HEIGHT + SCENE_PADDING_TOP,
-		detailsY,
+		height: NODE_START_Y + graphHeight + SCENE_PADDING_TOP,
 		nodes,
 		groups: [
 			{

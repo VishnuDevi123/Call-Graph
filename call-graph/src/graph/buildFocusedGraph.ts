@@ -2,7 +2,8 @@ import type { FunctionNode, GraphEdge as AnalyzerGraphEdge, ParsedFile } from '.
 import type { GraphDepth, GraphEdge, GraphExpansionDirection, GraphModel, GraphNode } from './types';
 
 const DEFAULT_MAX_DEPTH = 8;
-const DEFAULT_NODE_LIMIT = 40;
+const DEFAULT_NODE_LIMIT = 30;
+const LARGE_GRAPH_WARNING_THRESHOLD = 100;
 
 interface BuildFocusedGraphOptions {
 	callerDepth?: GraphDepth;
@@ -12,7 +13,8 @@ interface BuildFocusedGraphOptions {
 	includeTests?: boolean;
 }
 
-interface QueuedExpansion {
+interface ExpansionCandidate {
+	edge: AnalyzerGraphEdge;
 	nodeId: string;
 	direction: GraphExpansionDirection;
 	depth: number;
@@ -23,7 +25,6 @@ interface TrackedNode {
 	node: FunctionNode;
 	role: GraphNode['role'];
 	depth: number;
-	isFileContext?: boolean;
 }
 
 export function buildFocusedGraph(parsedFiles: ParsedFile[], focusNode: FunctionNode, options: BuildFocusedGraphOptions = {}): GraphModel {
@@ -35,7 +36,6 @@ export function buildFocusedGraph(parsedFiles: ParsedFile[], focusNode: Function
 	const allEdges = parsedFiles
 		.flatMap(file => file.edges)
 		.filter(edge => visibleNodeIds.has(edge.fromId) && visibleNodeIds.has(edge.toId));
-	const focusFile = parsedFiles.find(file => file.filePath === focusNode.identity.filePath);
 	const nodesById = new Map(allNodes.map(node => [node.id, node]));
 	const incomingEdges = groupEdges(allEdges, 'toId');
 	const outgoingEdges = groupEdges(allEdges, 'fromId');
@@ -49,106 +49,72 @@ export function buildFocusedGraph(parsedFiles: ParsedFile[], focusNode: Function
 	const nodeLimit = options.nodeLimit ?? DEFAULT_NODE_LIMIT;
 	const graphNodes = new Map<string, TrackedNode>();
 	const graphEdges = new Map<string, GraphEdge>();
-	const queue: QueuedExpansion[] = [];
+	const queue: ExpansionCandidate[] = [];
 	let limitReached = false;
+	let omittedDirectRelationshipCount = 0;
 
 	addNode(focusNode, 'focus', 0);
-
-	const directIncomingEdges = incomingEdges.get(focusNode.id) ?? [];
-	for (const edge of directIncomingEdges) {
-		if (!addEdgeAndNode(edge, edge.fromId, 'caller', 1)) {
-			continue;
-		}
-		queue.push({ nodeId: edge.fromId, direction: 'callers', depth: 1, seenPath: new Set([focusNode.id, edge.fromId]) });
-	}
-
-	if (focusNode.kind !== 'module' && directIncomingEdges.length === 0) {
-		const moduleNode = focusFile?.nodes.find(node => node.kind === 'module');
-		if (moduleNode && moduleNode.id !== focusNode.id) {
-			if (graphNodes.size < nodeLimit) {
-				addNode(moduleNode, 'caller', 1, true);
-			} else {
-				limitReached = true;
-			}
-		}
-	}
-
-	for (const edge of outgoingEdges.get(focusNode.id) ?? []) {
-		if (!addEdgeAndNode(edge, edge.toId, 'callee', 1)) {
-			continue;
-		}
-		queue.push({ nodeId: edge.toId, direction: 'callees', depth: 1, seenPath: new Set([focusNode.id, edge.toId]) });
-	}
+	queue.push(
+		...createCandidates(incomingEdges.get(focusNode.id) ?? [], 'callers', 1, focusNode.id),
+		...createCandidates(outgoingEdges.get(focusNode.id) ?? [], 'callees', 1, focusNode.id),
+	);
 
 	while (queue.length > 0) {
+		queue.sort(compareCandidates);
 		const next = queue.shift();
-		if (!next || next.depth >= directionDepths[next.direction]) {
+		if (!next || next.depth > directionDepths[next.direction]) {
+			continue;
+		}
+
+		const role: GraphNode['role'] = next.direction === 'callers' ? 'caller' : 'callee';
+		const node = nodesById.get(next.nodeId);
+		if (!node) {
+			continue;
+		}
+
+		if (!graphNodes.has(node.id) && graphNodes.size >= nodeLimit) {
+			limitReached = true;
+			if (next.depth === 1) {
+				omittedDirectRelationshipCount += 1;
+			}
+			continue;
+		}
+
+		addNode(node, role, next.depth);
+		graphEdges.set(next.edge.id, toGraphEdge(next.edge, nodesById));
+
+		if (next.depth >= directionDepths[next.direction] || next.seenPath.has(next.nodeId)) {
 			continue;
 		}
 
 		const candidateEdges = next.direction === 'callers'
 			? incomingEdges.get(next.nodeId) ?? []
 			: outgoingEdges.get(next.nodeId) ?? [];
-
-		for (const edge of candidateEdges) {
-			const neighborId = next.direction === 'callers' ? edge.fromId : edge.toId;
-			const role: GraphNode['role'] = next.direction === 'callers' ? 'caller' : 'callee';
-			const neighborDepth = next.depth + 1;
-
-			if (!addEdgeAndNode(edge, neighborId, role, neighborDepth)) {
-				continue;
-			}
-
-			if (next.seenPath.has(neighborId)) {
-				continue;
-			}
-
-			const seenPath = new Set(next.seenPath);
-			seenPath.add(neighborId);
-			queue.push({ nodeId: neighborId, direction: next.direction, depth: neighborDepth, seenPath });
-		}
+		const seenPath = new Set(next.seenPath);
+		seenPath.add(next.nodeId);
+		queue.push(...createCandidates(candidateEdges, next.direction, next.depth + 1, next.nodeId, seenPath));
 	}
 
 	return {
 		focusNodeId: focusNode.id,
 		includeTests,
 		nodes: [...graphNodes.values()]
-			.map(tracked => toGraphNode(tracked.node, tracked.role, tracked.depth, tracked.isFileContext))
+			.map(tracked => toGraphNode(tracked.node, tracked.role, tracked.depth))
 			.sort(compareGraphNodes),
-		edges: [...graphEdges.values()],
-		unresolvedCalls: (focusFile?.unresolvedCalls ?? [])
-			.filter(call => call.callerId === focusNode.id)
-			.map(call => `${call.expression} - ${call.reason}`),
-		externalCalls: (focusFile?.externalCalls ?? [])
-			.filter(call => call.callerId === focusNode.id)
-			.map(call => call.expression),
+		edges: [...graphEdges.values()].sort((left, right) => left.id.localeCompare(right.id)),
 		limitReached,
+		omittedDirectRelationshipCount,
+		largeGraphWarning: nodeLimit > LARGE_GRAPH_WARNING_THRESHOLD,
 		callerDepth,
 		calleeDepth,
 		maxDepth,
 		nodeLimit,
 	};
 
-	function addEdgeAndNode(edge: AnalyzerGraphEdge, nodeId: string, role: GraphNode['role'], depth: number): boolean {
-		const node = nodesById.get(nodeId);
-		if (!node) {
-			return false;
-		}
-
-		if (!graphNodes.has(node.id) && graphNodes.size >= nodeLimit) {
-			limitReached = true;
-			return false;
-		}
-
-		addNode(node, role, depth);
-		graphEdges.set(edge.id, toGraphEdge(edge));
-		return true;
-	}
-
-	function addNode(node: FunctionNode, role: GraphNode['role'], depth: number, isFileContext = false): void {
+	function addNode(node: FunctionNode, role: GraphNode['role'], depth: number): void {
 		const existing = graphNodes.get(node.id);
 		if (!existing) {
-			graphNodes.set(node.id, { node, role, depth, isFileContext });
+			graphNodes.set(node.id, { node, role, depth });
 			return;
 		}
 
@@ -159,7 +125,33 @@ export function buildFocusedGraph(parsedFiles: ParsedFile[], focusNode: Function
 			}
 		}
 	}
+}
 
+function createCandidates(
+	edges: AnalyzerGraphEdge[],
+	direction: GraphExpansionDirection,
+	depth: number,
+	sourceNodeId: string,
+	seenPath = new Set([sourceNodeId]),
+): ExpansionCandidate[] {
+	return edges.map(edge => ({
+		edge,
+		nodeId: direction === 'callers' ? edge.fromId : edge.toId,
+		direction,
+		depth,
+		seenPath,
+	}));
+}
+
+function compareCandidates(left: ExpansionCandidate, right: ExpansionCandidate): number {
+	return left.depth - right.depth
+		|| left.nodeId.localeCompare(right.nodeId)
+		|| directionOrder(left.direction) - directionOrder(right.direction)
+		|| left.edge.id.localeCompare(right.edge.id);
+}
+
+function directionOrder(direction: GraphExpansionDirection): number {
+	return direction === 'callers' ? 0 : 1;
 }
 
 function isTestFile(filePath: string): boolean {
@@ -185,12 +177,7 @@ function resolveDepth(depth: GraphDepth, maxDepth: number): number {
 	return depth === 'max' ? maxDepth : Math.min(depth, maxDepth);
 }
 
-function toGraphNode(
-	node: FunctionNode,
-	role: GraphNode['role'],
-	depth: number,
-	isFileContext?: boolean,
-): GraphNode {
+function toGraphNode(node: FunctionNode, role: GraphNode['role'], depth: number): GraphNode {
 	return {
 		id: node.id,
 		label: node.qualifiedName,
@@ -198,16 +185,23 @@ function toGraphNode(
 		line: node.selectionRange.start.line,
 		role,
 		depth,
-		...(isFileContext ? { isFileContext: true } : {}),
 	};
 }
 
-function toGraphEdge(edge: AnalyzerGraphEdge): GraphEdge {
+function toGraphEdge(edge: AnalyzerGraphEdge, nodesById: Map<string, FunctionNode>): GraphEdge {
+	const sourceFilePath = nodesById.get(edge.fromId)?.identity.filePath ?? '';
 	return {
 		id: edge.id,
 		from: edge.fromId,
 		to: edge.toId,
-		label: edge.callSites.length > 1 ? `${edge.reason} (${edge.callSites.length} calls)` : edge.reason,
+		label: edge.reason,
+		callCount: edge.callSites.length,
+		callSites: edge.callSites.map(callSite => ({
+			id: callSite.id,
+			expression: callSite.expression,
+			filePath: sourceFilePath,
+			range: callSite.range,
+		})),
 	};
 }
 
@@ -219,5 +213,6 @@ function compareGraphNodes(left: GraphNode, right: GraphNode): number {
 	};
 	return roleOrder[left.role] - roleOrder[right.role]
 		|| left.depth - right.depth
-		|| left.label.localeCompare(right.label);
+		|| left.label.localeCompare(right.label)
+		|| left.id.localeCompare(right.id);
 }

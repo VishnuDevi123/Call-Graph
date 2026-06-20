@@ -137,13 +137,6 @@ button:hover {
 	z-index: 1;
 }
 
-.group-label {
-	color: var(--muted);
-	font-size: 12px;
-	text-transform: uppercase;
-	letter-spacing: 0;
-}
-
 .empty-state {
 	position: absolute;
 	z-index: 1;
@@ -207,15 +200,6 @@ button:hover {
 	color: var(--muted);
 	font-size: 12px;
 	overflow-wrap: anywhere;
-}
-
-.details {
-	position: absolute;
-	left: 40px;
-	right: 40px;
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 16px;
 }
 
 details {

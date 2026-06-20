@@ -120,7 +120,6 @@ suite('workspace import resolution', () => {
 		assert.deepStrictEqual(
 			buildFocusedGraph(files, appMain).nodes.map(graphNode => [graphNode.label, graphNode.role]),
 			[
-				['<module>', 'caller'],
 				['main', 'focus'],
 				['run', 'callee'],
 			],
