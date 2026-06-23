@@ -3,17 +3,23 @@ import type { WebviewElements } from './dom';
 import { depthChangeMessage } from './messages';
 import type { VsCodeApi } from './types';
 
-export function installControls(elements: WebviewElements, vscode: VsCodeApi): void {
+export interface ControlActions {
+	resetView(): void;
+	toggleMinimap(): void;
+}
+
+export function installControls(elements: WebviewElements, vscode: VsCodeApi, actions: ControlActions): void {
 	elements.refresh.addEventListener('click', event => {
 		event.stopPropagation();
 		vscode.postMessage({ type: 'refreshRequested' });
 	});
-	elements.includeTests.addEventListener('change', event => {
+	elements.resetView.addEventListener('click', event => {
 		event.stopPropagation();
-		vscode.postMessage({
-			type: 'includeTestsChanged',
-			includeTests: elements.includeTests.checked,
-		});
+		actions.resetView();
+	});
+	elements.minimapToggle.addEventListener('click', event => {
+		event.stopPropagation();
+		actions.toggleMinimap();
 	});
 	elements.depthLeft.addEventListener('change', event => {
 		event.stopPropagation();
@@ -26,7 +32,6 @@ export function installControls(elements: WebviewElements, vscode: VsCodeApi): v
 }
 
 export function updateControls(elements: WebviewElements, graph: GraphModel): void {
-	elements.includeTests.checked = graph.includeTests;
 	elements.depthLeft.value = String(graph.callerDepth);
 	elements.depthRight.value = String(graph.calleeDepth);
 }

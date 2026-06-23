@@ -1,19 +1,15 @@
 import * as vscode from 'vscode';
-import { emptyGraph } from '../graph/emptyGraph';
 import type { GraphDepth, GraphExpansionDirection, GraphModel } from '../graph/types';
 import { getWebviewHtml } from './html';
-import { createSceneGeometry } from './sceneGeometry';
 
 type WebviewMessage =
 	| { type: 'nodeSelected'; nodeId: string }
 	| { type: 'refreshRequested' }
-	| { type: 'includeTestsChanged'; includeTests: boolean }
 	| { type: 'depthChanged'; direction: GraphExpansionDirection; depth: GraphDepth };
 
 // handlers for messages sent from the webview to the extension
 export interface CallGraphPanelHandlers {
 	onNodeSelected(nodeId: string): void | Promise<void>;
-	onIncludeTestsChanged(includeTests: boolean): void | Promise<void>;
 	onDepthChanged(direction: GraphExpansionDirection, depth: GraphDepth): void | Promise<void>;
 }
 
@@ -36,6 +32,7 @@ export class CallGraphPanel {
 		this.panel.webview.html = getWebviewHtml(this.panel.webview, {
 			scriptUri: this.panel.webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview.js')),
 			styleUri: this.panel.webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview.css')),
+			workerUri: this.panel.webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'layoutWorker.js')),
 		});
 
 		this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -71,14 +68,13 @@ export class CallGraphPanel {
 		void this.panel.webview.postMessage({
 			type: 'graphUpdated',
 			graph,
-			scene: createSceneGeometry(graph),
 		});
 	}
 
 	// updates the status message displayed in the webview
 	public updateStatus(message: string | undefined, severity: 'warning' = 'warning'): void {
 		void this.panel.webview.postMessage({
-			type: 'statusUpdated',
+			type: 'overlayUpdated',
 			message,
 			severity,
 		});
@@ -100,9 +96,6 @@ export class CallGraphPanel {
 				return;
 			case 'refreshRequested':
 				void vscode.commands.executeCommand('call-graph.refreshIndex');
-				return;
-			case 'includeTestsChanged':
-				void this.handlers.onIncludeTestsChanged(message.includeTests);
 				return;
 			case 'depthChanged':
 				void this.handlers.onDepthChanged(message.direction, message.depth);

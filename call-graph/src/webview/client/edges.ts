@@ -1,6 +1,8 @@
-import type { GraphSceneGeometry } from '../sceneGeometry';
+import type { LayoutEdgeResult } from '../layout/workerProtocol';
+import type { RenderSceneGeometry } from '../renderGeometry';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+const RECIPROCAL_CURVE_OFFSET = 54;
 
 export function createEdgeOverlay(document: Document): SVGSVGElement {
 	const svg = document.createElementNS(SVG_NAMESPACE, 'svg');
@@ -10,22 +12,28 @@ export function createEdgeOverlay(document: Document): SVGSVGElement {
 	const marker = document.createElementNS(SVG_NAMESPACE, 'marker');
 	marker.setAttribute('id', 'arrowhead');
 	marker.setAttribute('viewBox', '0 0 10 10');
-	marker.setAttribute('refX', '9');
+	// The marker tip and path endpoint share the same coordinate, preventing a
+	// visible gap at any edge angle.
+	marker.setAttribute('refX', '10');
 	marker.setAttribute('refY', '5');
-	marker.setAttribute('markerWidth', '7');
-	marker.setAttribute('markerHeight', '7');
-	marker.setAttribute('orient', 'auto-start-reverse');
+	marker.setAttribute('markerWidth', '10');
+	marker.setAttribute('markerHeight', '10');
+	marker.setAttribute('markerUnits', 'userSpaceOnUse');
+	marker.setAttribute('orient', 'auto');
 	const markerPath = document.createElementNS(SVG_NAMESPACE, 'path');
 	markerPath.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z');
-	markerPath.setAttribute('fill', 'var(--accent)');
-	markerPath.setAttribute('fill-opacity', '0.72');
+	markerPath.classList.add('edge-arrowhead');
 	marker.appendChild(markerPath);
 	defs.appendChild(marker);
 	svg.appendChild(defs);
 	return svg;
 }
 
-export function renderEdges(canvas: HTMLElement, scene: GraphSceneGeometry): void {
+export function renderEdges(
+	document: Document,
+	canvas: HTMLElement,
+	scene: RenderSceneGeometry,
+): void {
 	const overlay = canvas.querySelector<SVGSVGElement>('.edge-overlay');
 	if (!overlay) {
 		return;
@@ -36,9 +44,28 @@ export function renderEdges(canvas: HTMLElement, scene: GraphSceneGeometry): voi
 	overlay.setAttribute('viewBox', `0 0 ${scene.width} ${scene.height}`);
 	for (const edge of scene.edges) {
 		const path = document.createElementNS(SVG_NAMESPACE, 'path');
-		path.classList.add('edge-path');
-		path.setAttribute('d', edge.path);
+		path.classList.add('edge-path', edge.type);
+		path.dataset.edgeId = edge.id;
+		path.setAttribute('d', edgePath(edge));
 		path.setAttribute('marker-end', 'url(#arrowhead)');
 		overlay.appendChild(path);
 	}
+}
+
+/** Returns a straight vector or one side of a reciprocal oval-like pair. */
+export function edgePath(edge: LayoutEdgeResult): string {
+	if (edge.type === 'normal') {
+		return `M ${edge.start.x} ${edge.start.y} L ${edge.end.x} ${edge.end.y}`;
+	}
+
+	const deltaX = edge.end.x - edge.start.x;
+	const deltaY = edge.end.y - edge.start.y;
+	const length = Math.max(1, Math.hypot(deltaX, deltaY));
+	// Reversing an edge reverses this perpendicular automatically, so the two
+	// directions occupy opposite sides without relying on input ordering.
+	const perpendicularX = -deltaY / length * RECIPROCAL_CURVE_OFFSET;
+	const perpendicularY = deltaX / length * RECIPROCAL_CURVE_OFFSET;
+	const midpointX = (edge.start.x + edge.end.x) / 2 + perpendicularX;
+	const midpointY = (edge.start.y + edge.end.y) / 2 + perpendicularY;
+	return `M ${edge.start.x} ${edge.start.y} Q ${midpointX} ${midpointY} ${edge.end.x} ${edge.end.y}`;
 }

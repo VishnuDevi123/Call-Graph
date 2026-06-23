@@ -10,7 +10,6 @@ interface BuildFocusedGraphOptions {
 	calleeDepth?: GraphDepth;
 	maxDepth?: number;
 	nodeLimit?: number;
-	includeTests?: boolean;
 }
 
 interface ExpansionCandidate {
@@ -28,10 +27,9 @@ interface TrackedNode {
 }
 
 export function buildFocusedGraph(parsedFiles: ParsedFile[], focusNode: FunctionNode, options: BuildFocusedGraphOptions = {}): GraphModel {
-	const includeTests = options.includeTests ?? true;
-	const allNodes = parsedFiles
-		.flatMap(file => file.nodes)
-		.filter(node => includeTests || node.id === focusNode.id || !isTestFile(node.identity.filePath));
+	// Test files are part of the workspace graph in V1. Filtering remains outside
+	// the graph-session contract until a future product slice reintroduces it.
+	const allNodes = parsedFiles.flatMap(file => file.nodes);
 	const visibleNodeIds = new Set(allNodes.map(node => node.id));
 	const allEdges = parsedFiles
 		.flatMap(file => file.edges)
@@ -97,11 +95,11 @@ export function buildFocusedGraph(parsedFiles: ParsedFile[], focusNode: Function
 
 	return {
 		focusNodeId: focusNode.id,
-		includeTests,
 		nodes: [...graphNodes.values()]
 			.map(tracked => toGraphNode(tracked.node, tracked.role, tracked.depth))
 			.sort(compareGraphNodes),
-		edges: [...graphEdges.values()].sort((left, right) => left.id.localeCompare(right.id)),
+		edges: classifyReciprocalEdges([...graphEdges.values()])
+			.sort((left, right) => left.id.localeCompare(right.id)),
 		limitReached,
 		omittedDirectRelationshipCount,
 		largeGraphWarning: nodeLimit > LARGE_GRAPH_WARNING_THRESHOLD,
@@ -154,15 +152,6 @@ function directionOrder(direction: GraphExpansionDirection): number {
 	return direction === 'callers' ? 0 : 1;
 }
 
-function isTestFile(filePath: string): boolean {
-	const normalizedPath = filePath.replace(/\\/g, '/').toLowerCase();
-	const segments = normalizedPath.split('/');
-	const fileName = segments.at(-1) ?? '';
-	return segments.slice(0, -1).some(segment => segment === 'test' || segment === 'tests')
-		|| fileName.startsWith('test_')
-		|| fileName.endsWith('_test.py');
-}
-
 function groupEdges(edges: AnalyzerGraphEdge[], key: 'fromId' | 'toId'): Map<string, AnalyzerGraphEdge[]> {
 	const grouped = new Map<string, AnalyzerGraphEdge[]>();
 	for (const edge of edges) {
@@ -194,6 +183,7 @@ function toGraphEdge(edge: AnalyzerGraphEdge, nodesById: Map<string, FunctionNod
 		id: edge.id,
 		from: edge.fromId,
 		to: edge.toId,
+		type: 'normal',
 		label: edge.reason,
 		callCount: edge.callSites.length,
 		callSites: edge.callSites.map(callSite => ({
@@ -203,6 +193,20 @@ function toGraphEdge(edge: AnalyzerGraphEdge, nodesById: Map<string, FunctionNod
 			range: callSite.range,
 		})),
 	};
+}
+
+/**
+ * Marks both directions of a rendered A↔B relationship for reciprocal routing.
+ * Self-recursive edges stay normal because they do not form a two-node pair.
+ */
+function classifyReciprocalEdges(edges: GraphEdge[]): GraphEdge[] {
+	const directedPairs = new Set(edges.map(edge => `${edge.from}\u0000${edge.to}`));
+	return edges.map(edge => ({
+		...edge,
+		type: edge.from !== edge.to && directedPairs.has(`${edge.to}\u0000${edge.from}`)
+			? 'reciprocal'
+			: 'normal',
+	}));
 }
 
 function compareGraphNodes(left: GraphNode, right: GraphNode): number {

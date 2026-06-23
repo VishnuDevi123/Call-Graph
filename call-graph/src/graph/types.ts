@@ -23,6 +23,7 @@ export interface GraphEdge {
 	id: string;
 	from: string;
 	to: string;
+	type: 'normal' | 'reciprocal';
 	label: string;
 	callCount: number;
 	callSites: GraphEdgeCallSite[];
@@ -30,7 +31,6 @@ export interface GraphEdge {
 
 export interface GraphModel {
 	focusNodeId: string;
-	includeTests: boolean;
 	nodes: GraphNode[];
 	edges: GraphEdge[];
 	limitReached: boolean;

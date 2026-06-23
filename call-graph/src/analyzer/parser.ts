@@ -1,15 +1,15 @@
-import type { ParsedFile } from './types';
+import type { ParsedFile } from "./types";
 
 export interface ParseInput {
-	filePath: string;
-	source: string;
+  filePath: string;
+  source: string;
 }
 
 export interface SourceParser {
-	readonly languageId: string;
-	parse(input: ParseInput): ParsedFile;
+  readonly languageId: string;
+  parse(input: ParseInput): ParsedFile;
 }
 
 export interface AsyncSourceParserFactory<TParser extends SourceParser> {
-	create(): Promise<TParser>;
+  create(): Promise<TParser>;
 }

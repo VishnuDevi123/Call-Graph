@@ -12,7 +12,6 @@ export function activate(context: vscode.ExtensionContext) {
 	const documentUpdates = new DocumentUpdateController(workspaceIndex, focusController);
 	const panelHandlers = {
 		onNodeSelected: (nodeId: string) => focusController.navigateToNode(nodeId),
-		onIncludeTestsChanged: (includeTests: boolean) => focusController.setIncludeTests(includeTests),
 		onDepthChanged: (direction: 'callers' | 'callees', depth: 1 | 2 | 3 | 4 | 5 | 'max') =>
 			focusController.setDirectionalDepth(direction, depth),
 	};

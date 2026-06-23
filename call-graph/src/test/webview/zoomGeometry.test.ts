@@ -2,9 +2,8 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import type * as vscode from 'vscode';
-import type { GraphModel, GraphNode } from '../../graph/types';
 import { getWebviewHtml } from '../../webview/html';
-import { createSceneGeometry } from '../../webview/sceneGeometry';
+import type { RenderSceneGeometry } from '../../webview/renderGeometry';
 import {
 	calculateZoomTransition,
 	createMinimapGeometry,
@@ -19,6 +18,7 @@ suite('webview whole-scene zoom geometry', () => {
 		const html = getWebviewHtml({ cspSource: 'test' } as vscode.Webview, {
 			scriptUri: 'webview.js' as unknown as vscode.Uri,
 			styleUri: 'webview.css' as unknown as vscode.Uri,
+			workerUri: 'layoutWorker.js' as unknown as vscode.Uri,
 		});
 		const client = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'client', 'index.ts'), 'utf8');
 		const transformAssignments = client.match(/canvas\.style\.transform/g) ?? [];
@@ -30,14 +30,14 @@ suite('webview whole-scene zoom geometry', () => {
 	});
 
 	test('uses one bounded scene transform and scaled stage size', () => {
-		const scene = createSceneGeometry(sampleGraph());
+		const scene = sampleScene();
 
-		assert.strictEqual(sceneTransform(1.35), 'scale(1.35)');
+		assert.strictEqual(sceneTransform(1.34), 'scale(1.34)');
 		assert.strictEqual(sceneTransform(10), `scale(${MAX_ZOOM})`);
 		assert.strictEqual(sceneTransform(0), `scale(${MIN_ZOOM})`);
-		assert.deepStrictEqual(scaledSceneSize(scene, 0.55), {
-			width: scene.width * 0.55,
-			height: scene.height * 0.55,
+		assert.deepStrictEqual(scaledSceneSize(scene, 0.54), {
+			width: scene.width * 0.54,
+			height: scene.height * 0.54,
 		});
 	});
 
@@ -90,7 +90,7 @@ suite('webview whole-scene zoom geometry', () => {
 	});
 
 	test('does not mutate fixed scene geometry during zoom', () => {
-		const scene = createSceneGeometry(sampleGraph());
+		const scene = sampleScene();
 		const before = structuredClone(scene);
 
 		calculateZoomTransition({
@@ -108,23 +108,24 @@ suite('webview whole-scene zoom geometry', () => {
 	});
 
 	test('maps transformed viewport back into fixed minimap scene coordinates', () => {
-		const scene = createSceneGeometry(sampleGraph());
+		const scene = sampleScene();
 		const atOne = createMinimapGeometry(scene, 1, 120, 60, 600, 300);
-		const atScaled = createMinimapGeometry(scene, 1.8, 216, 108, 1080, 540);
+		const atScaled = createMinimapGeometry(scene, 1.6, 192, 96, 960, 480);
 
 		assert.deepStrictEqual(atScaled.viewport, atOne.viewport);
 		assert.deepStrictEqual(atScaled.nodes, scene.nodes);
 	});
 
 	test('fits dynamic multi-depth scene bounds into the minimap', () => {
-		const graph = sampleGraph();
-		graph.nodes.push(
-			node('caller-two', 'caller-two', 'caller', 2),
-			node('caller-three', 'caller-three', 'caller', 3),
-			node('callee-two', 'callee-two', 'callee', 2),
-		);
-		const baseScene = createSceneGeometry(sampleGraph());
-		const expandedScene = createSceneGeometry(graph);
+		const baseScene = sampleScene();
+		const expandedScene = sampleScene({
+			width: 1800,
+			nodes: [
+				{ id: 'caller-two', x: 40, y: 220, width: 180, height: 58 },
+				{ id: 'caller-three', x: 300, y: 60, width: 210, height: 58 },
+				{ id: 'callee-two', x: 1500, y: 180, width: 220, height: 58 },
+			],
+		});
 		const minimap = createMinimapGeometry(expandedScene, 1, 0, 0, 800, 500);
 
 		assert.ok(expandedScene.width > baseScene.width);
@@ -138,47 +139,34 @@ suite('webview whole-scene zoom geometry', () => {
 	});
 });
 
-function sampleGraph(): GraphModel {
-	return {
-		focusNodeId: 'focus',
-		includeTests: true,
+function sampleScene(overrides: Partial<RenderSceneGeometry> = {}): RenderSceneGeometry {
+	const base: RenderSceneGeometry = {
+		width: 1000,
+		height: 500,
 		nodes: [
-			node('caller', 'caller', 'caller', 1),
-			node('focus', 'focus', 'focus', 0),
-			node('callee', 'callee', 'callee', 1),
+			{ id: 'caller', x: 40, y: 180, width: 180, height: 58 },
+			{ id: 'focus', x: 400, y: 170, width: 220, height: 78 },
+			{ id: 'callee', x: 780, y: 180, width: 180, height: 58 },
 		],
 		edges: [
-			edge('caller-focus', 'caller', 'focus'),
-			edge('focus-callee', 'focus', 'callee'),
+			{
+				id: 'caller-focus',
+				type: 'normal',
+				start: { x: 220, y: 209 },
+				end: { x: 400, y: 209 },
+			},
+			{
+				id: 'focus-callee',
+				type: 'normal',
+				start: { x: 620, y: 209 },
+				end: { x: 780, y: 209 },
+			},
 		],
-		limitReached: false,
-		omittedDirectRelationshipCount: 0,
-		largeGraphWarning: false,
-		callerDepth: 1,
-		calleeDepth: 1,
-		maxDepth: 8,
-		nodeLimit: 30,
+		hasObstructedEdges: false,
 	};
-}
-
-function edge(id: string, from: string, to: string): GraphModel['edges'][number] {
 	return {
-		id,
-		from,
-		to,
-		label: 'direct call',
-		callCount: 1,
-		callSites: [],
-	};
-}
-
-function node(id: string, label: string, role: GraphNode['role'], depth: number): GraphNode {
-	return {
-		id,
-		label,
-		filePath: `${id}.py`,
-		line: 1,
-		role,
-		depth,
+		...base,
+		...overrides,
+		nodes: overrides.nodes ? [...base.nodes, ...overrides.nodes] : base.nodes,
 	};
 }

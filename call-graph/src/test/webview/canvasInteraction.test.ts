@@ -58,6 +58,39 @@ suite('webview canvas interaction and graph labels', () => {
 		assert.strictEqual(source.includes("'External calls'"), false);
 		assert.strictEqual(source.includes('renderDetails'), false);
 	});
+
+	test('renders measured complete labels without role groups or fake empty states', () => {
+		const renderer = clientSource('graphRenderer.ts');
+		const measurement = clientSource('textMeasurement.ts');
+		const styles = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'styles.css'), 'utf8');
+
+		assert.ok(renderer.includes('geometry.width'));
+		assert.ok(renderer.includes('geometry.height'));
+		assert.ok(renderer.includes('name.textContent = node.label'));
+		assert.ok(renderer.includes('`${fileName(node.filePath)}:${node.line}`'));
+		assert.ok(measurement.includes('getBoundingClientRect()'));
+		assert.ok(styles.includes('font-size: 12pt'));
+		assert.ok(styles.includes('font-size: 9pt'));
+		assert.ok(styles.includes('--call-graph-node-radius: 4px'));
+		assert.ok(styles.includes('white-space: nowrap'));
+		assert.ok(styles.includes('--call-graph-caller: #6366f1'));
+		assert.ok(styles.includes('--call-graph-focus: #f43f5e'));
+		assert.ok(styles.includes('--call-graph-callee: #14b8a6'));
+		assert.strictEqual(renderer.includes('empty-state'), false);
+		assert.strictEqual(renderer.includes("textContent = 'None'"), false);
+		assert.strictEqual(renderer.includes("className = 'group'"), false);
+	});
+
+	test('uses straight normal vectors, reciprocal curves, and endpoint-joined ten-point arrows', () => {
+		const edges = clientSource('edges.ts');
+
+		assert.ok(edges.includes("return `M ${edge.start.x} ${edge.start.y} L ${edge.end.x} ${edge.end.y}`"));
+		assert.ok(edges.includes(' Q '));
+		assert.ok(edges.includes("marker.setAttribute('refX', '10')"));
+		assert.ok(edges.includes("marker.setAttribute('markerWidth', '10')"));
+		assert.ok(edges.includes("marker.setAttribute('markerHeight', '10')"));
+		assert.strictEqual(edges.includes(' C '), false);
+	});
 });
 
 function clientSource(file: string): string {

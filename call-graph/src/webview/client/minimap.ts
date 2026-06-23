@@ -1,5 +1,5 @@
 import type { GraphModel } from '../../graph/types';
-import type { GraphSceneGeometry } from '../sceneGeometry';
+import type { RenderSceneGeometry } from '../renderGeometry';
 import { createMinimapGeometry } from '../zoomGeometry';
 import type { WebviewElements } from './dom';
 
@@ -8,7 +8,7 @@ const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 export function renderMinimap(
 	elements: WebviewElements,
 	graph: GraphModel,
-	scene: GraphSceneGeometry,
+	scene: RenderSceneGeometry,
 	zoom: number,
 ): void {
 	const geometry = createMinimapGeometry(

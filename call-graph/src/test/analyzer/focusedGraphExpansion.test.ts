@@ -181,7 +181,7 @@ suite('focused graph expansion', () => {
 		assert.strictEqual(sizeLimited.omittedDirectRelationshipCount, 1);
 	});
 
-	test('includes tests by default and hides test-file relationships on request', () => {
+	test('always includes test-file relationships in the V1 graph', () => {
 		const product = resolveSameFileCalls(parser.parse({
 			filePath: 'src/service.py',
 			source: 'def run():\n    pass\n',
@@ -200,13 +200,9 @@ suite('focused graph expansion', () => {
 			reason: 'direct import',
 		});
 
-		const included = buildFocusedGraph([product, tests], run);
-		const hidden = buildFocusedGraph([product, tests], run, { includeTests: false });
+		const graph = buildFocusedGraph([product, tests], run);
 
-		assert.strictEqual(included.includeTests, true);
-		assert.strictEqual(included.nodes.some(graphNode => graphNode.label === 'test_run'), true);
-		assert.strictEqual(hidden.includeTests, false);
-		assert.strictEqual(hidden.nodes.some(graphNode => graphNode.label === 'test_run'), false);
+		assert.strictEqual(graph.nodes.some(graphNode => graphNode.label === 'test_run'), true);
 	});
 
 	test('does not add module context to a callerless function', () => {
@@ -323,6 +319,36 @@ suite('focused graph expansion', () => {
 		assert.deepStrictEqual(edge.callSites.map(callSite => callSite.expression), ['callee', 'callee']);
 		assert.deepStrictEqual(edge.callSites.map(callSite => callSite.filePath), ['graph.py', 'graph.py']);
 		assert.deepStrictEqual(edge.callSites.map(callSite => callSite.range.start.line), [2, 3]);
+	});
+
+	test('classifies both directions of a reciprocal relationship explicitly', () => {
+		const parsed = parse([
+			'def focus():',
+			'    peer()',
+			'',
+			'def peer():',
+			'    focus()',
+		]);
+		const graph = buildFocusedGraph([parsed], node(parsed, 'focus'), {
+			callerDepth: 2,
+			calleeDepth: 2,
+		});
+
+		assert.deepStrictEqual(graph.edges.map(edge => edge.type), ['reciprocal', 'reciprocal']);
+	});
+
+	test('keeps one-way and self-recursive relationships normal', () => {
+		const parsed = parse([
+			'def focus():',
+			'    focus()',
+			'    callee()',
+			'',
+			'def callee():',
+			'    pass',
+		]);
+		const graph = buildFocusedGraph([parsed], node(parsed, 'focus'));
+
+		assert.deepStrictEqual(graph.edges.map(edge => edge.type), ['normal', 'normal']);
 	});
 
 	test('preserves directional depths across focus changes within a graph session', () => {
