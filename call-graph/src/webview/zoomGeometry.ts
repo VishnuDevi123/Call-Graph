@@ -1,4 +1,5 @@
-import type { GraphSceneGeometry, SceneNodeGeometry } from './sceneGeometry';
+import type { LayoutNodeResult } from './layout/workerProtocol';
+import type { RenderSceneGeometry } from './renderGeometry';
 
 export const MIN_ZOOM = 0.45;
 export const MAX_ZOOM = 1.6;
@@ -24,7 +25,7 @@ export interface MinimapGeometry {
 	scale: number;
 	offsetX: number;
 	offsetY: number;
-	nodes: SceneNodeGeometry[];
+	nodes: LayoutNodeResult[];
 	viewport: {
 		x: number;
 		y: number;
@@ -34,15 +35,21 @@ export interface MinimapGeometry {
 }
 
 export function normalizeZoom(zoom: number): number {
-	const bounded = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
-	return Math.round(bounded / ZOOM_STEP) * ZOOM_STEP;
+	if (zoom <= MIN_ZOOM) {
+		return MIN_ZOOM;
+	}
+	if (zoom >= MAX_ZOOM) {
+		return MAX_ZOOM;
+	}
+	const stepped = Math.round(zoom / ZOOM_STEP) * ZOOM_STEP;
+	return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, stepped));
 }
 
 export function sceneTransform(zoom: number): string {
 	return `scale(${normalizeZoom(zoom)})`;
 }
 
-export function scaledSceneSize(scene: GraphSceneGeometry, zoom: number): { width: number; height: number } {
+export function scaledSceneSize(scene: RenderSceneGeometry, zoom: number): { width: number; height: number } {
 	const normalizedZoom = normalizeZoom(zoom);
 	return {
 		width: scene.width * normalizedZoom,
@@ -65,7 +72,7 @@ export function calculateZoomTransition(input: ZoomTransitionInput): ZoomTransit
 }
 
 export function createMinimapGeometry(
-	scene: GraphSceneGeometry,
+	scene: RenderSceneGeometry,
 	zoom: number,
 	scrollLeft: number,
 	scrollTop: number,

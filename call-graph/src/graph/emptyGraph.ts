@@ -2,7 +2,6 @@ import type { GraphModel } from './types';
 
 export const emptyGraph: GraphModel = {
 	focusNodeId: '',
-	includeTests: true,
 	nodes: [],
 	edges: [],
 	limitReached: false,

@@ -42,5 +42,6 @@ function webviewHtml(): string {
 	return getWebviewHtml({ cspSource: 'test' } as vscode.Webview, {
 		scriptUri: 'webview.js' as unknown as vscode.Uri,
 		styleUri: 'webview.css' as unknown as vscode.Uri,
+		workerUri: 'layoutWorker.js' as unknown as vscode.Uri,
 	});
 }

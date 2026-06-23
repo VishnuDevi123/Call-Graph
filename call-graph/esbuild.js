@@ -56,6 +56,20 @@ async function main() {
 		logLevel: 'silent',
 		plugins: [esbuildProblemMatcherPlugin],
 	});
+	const layoutWorkerContext = await esbuild.context({
+		entryPoints: {
+			layoutWorker: 'src/webview/layout/layoutWorker.ts',
+		},
+		bundle: true,
+		format: 'iife',
+		minify: production,
+		sourcemap: !production,
+		sourcesContent: false,
+		platform: 'browser',
+		outdir: 'dist',
+		logLevel: 'silent',
+		plugins: [esbuildProblemMatcherPlugin],
+	});
 	const styleContext = await esbuild.context({
 		entryPoints: {
 			webview: 'src/webview/styles.css',
@@ -72,17 +86,20 @@ async function main() {
 		await Promise.all([
 			extensionContext.watch(),
 			webviewContext.watch(),
+			layoutWorkerContext.watch(),
 			styleContext.watch(),
 		]);
 	} else {
 		await Promise.all([
 			extensionContext.rebuild(),
 			webviewContext.rebuild(),
+			layoutWorkerContext.rebuild(),
 			styleContext.rebuild(),
 		]);
 		await Promise.all([
 			extensionContext.dispose(),
 			webviewContext.dispose(),
+			layoutWorkerContext.dispose(),
 			styleContext.dispose(),
 		]);
 	}

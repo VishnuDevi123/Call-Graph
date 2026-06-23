@@ -27,7 +27,6 @@ export interface FocusUpdate {
 export class FocusController implements vscode.Disposable {
 	private readonly disposables: vscode.Disposable[] = [];
 	private debounceTimer: ReturnType<typeof setTimeout> | undefined;
-	private includeTests = true;
 	private readonly sessionState = new GraphSessionState();
 
 	public constructor(private readonly workspaceIndex: WorkspaceIndexService) {
@@ -105,15 +104,6 @@ export class FocusController implements vscode.Disposable {
 		this.publishCurrentFocus();
 	}
 
-	public setIncludeTests(includeTests: boolean): void {
-		if (this.includeTests === includeTests) {
-			return;
-		}
-
-		this.includeTests = includeTests;
-		this.publishCurrentFocus();
-	}
-
 	public dispose(): void {
 		if (this.debounceTimer) {
 			clearTimeout(this.debounceTimer);
@@ -168,14 +158,13 @@ export class FocusController implements vscode.Disposable {
 		CallGraphPanel.currentPanel.updateGraph(buildFocusedGraph(this.workspaceIndex.getSnapshot().files, indexedNode.node, this.getGraphBuildOptions()));
 	}
 
-	private getGraphBuildOptions(): { callerDepth: GraphDepth; calleeDepth: GraphDepth; maxDepth: number; nodeLimit: number; includeTests: boolean } {
+	private getGraphBuildOptions(): { callerDepth: GraphDepth; calleeDepth: GraphDepth; maxDepth: number; nodeLimit: number } {
 		const configuration = vscode.workspace.getConfiguration('callGraph');
 		return {
 			callerDepth: this.sessionState.callerDepth,
 			calleeDepth: this.sessionState.calleeDepth,
 			maxDepth: clampConfigurationNumber(configuration.get('maxExpansionDepth'), DEFAULT_MAX_EXPANSION_DEPTH, 5, 8),
 			nodeLimit: clampConfigurationNumber(configuration.get('maxGraphNodes'), DEFAULT_MAX_GRAPH_NODES, 5, 250),
-			includeTests: this.includeTests,
 		};
 	}
 
