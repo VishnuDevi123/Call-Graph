@@ -1,10 +1,10 @@
 # Call Graph Progress
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 
 ## Current Status
 
-Slices 0–16 are implemented in `call-graph/`. Slice 17 is next.
+Slices 0–19 are implemented in `call-graph/`.
 
 Current extension capabilities:
 
@@ -22,8 +22,12 @@ Current extension capabilities:
 - hidden DOM node measurement and pure geometry helpers
 - deterministic soft depth-band placement with bounded obstacle-avoidance retries
 - live measured-node rendering with straight vectors and reciprocal curves
+- complete-graph fitting with viewport-sized pan space
+- panel-lifetime Back/Forward graph navigation
+- polished toolbar, minimap, hover emphasis, centered overlays, and organized tunable CSS
+- layout failure fallback with centered Retry/Refresh actions and offline packaging checks
 
-The live UI now renders the worker-owned soft depth-band geometry with measured HTML nodes and SVG vector edges. Slice 17 will add full-graph fitting and graph navigation history. The approved replacement UI contract is in:
+The live UI now fits the complete worker-owned graph after initial layout, refocus, depth changes, and Reset View. Explicit node-click exploration supports panel-lifetime Back/Forward history without recording automatic cursor refocus. Slice 19 hardened the layout path: stale worker results and stale worker errors cannot replace current geometry, worker timeout fallback remains bounded and non-overlapping, layout failures keep the previous graph visible with centered Retry/Refresh recovery actions, and packaging checks confirm the production webview/worker require no runtime network access. The approved replacement UI contract is in:
 
 - `docs/python-call-graph-extension-prd.md`
 - `docs/call-graph-ui-grill-session.md`
@@ -127,11 +131,70 @@ Do not restore the discarded ELK-based Slice 13 implementation. New layout work 
 - normalized worker coordinates into one shared positive HTML/SVG scene while retaining obstruction-warning state
 - deleted obsolete `sceneGeometry.ts` and replaced its fixed-column tests with measured-node and vector-edge contract tests
 
+### Slice 17: Full-Graph Fit and Navigation
+
+- fit the complete scene after initial layout, refocus, depth changes, and Reset View
+- separated manual pointer-centered zoom limits of `50%–200%` from the automatic fit floor of `10%`
+- added one current viewport of pan space on every side of graph content
+- kept pointer-centered manual zoom stable after adding viewport pan margins
+- added a `240ms` fit transform and smooth viewport transition with reduced-motion handling
+- added panel-lifetime Back/Forward history for explicit graph-node navigation across files
+- kept automatic editor cursor refocus out of navigation history and Forward destinations
+- cleared Forward history when a new node is selected after navigating Back
+- enabled and disabled Back/Forward toolbar controls from extension-host history state
+- added focused unit coverage for fit bounds, automatic/manual zoom limits, pan margins, pointer stability, and navigation-history invariants
+
+### Pre-Slice-18 Cleanup: Zoom and Layout Tuning
+
+- kept the normal manual wheel zoom floor at `50%` while allowing wheel zoom-out to return to the current auto-fit scale when a complete-graph fit lands below `50%`
+- preserved the automatic fit floor near `10%`
+- softened prior-position vertical influence in `softDepthBandLayout.ts` so previous coordinates reduce motion without scattering tiny unobstructed graphs
+- tuned default webview layout spacing to more compact depth bands while preserving caller-left, focus-center, callee-right placement and deeper outward ordering
+- capped hierarchy-aware layout sub-bands at the selected depth so depth 2 does not visually present as an extra outward level
+- limited the user-facing routing warning to actual rendered edge intersections with unrelated node rectangles instead of invisible safety-padding near misses
+- added focused unit coverage for the fitted-scale wheel floor, tiny graph vertical coherence, compact depth differentiation, selected-depth band caps, and padding-only routing near misses
+
+### Pre-Slice-18 Layout Tuning: Relationship-Aware Rows
+
+- kept semantic graph depth and horizontal soft-band assignment intact while adding row preferences for connected nodes across adjacent depth bands
+- aligned unobstructed caller and callee chains vertically where that reduces edge steepness without overriding overlap separation or obstruction repair
+- kept prior positions as secondary soft preferences so refocus stability does not scatter tiny graphs or overpower relationship clarity
+- preserved horizontal depth ordering and selected-depth band caps, including the depth-2 cap that prevents an extra outward visual band
+- tightened the routing warning so rendered-edge boundary contact does not count; warnings require an actual straight-edge intersection through an unrelated visible node rectangle
+- added focused unit coverage for connected caller/callee row alignment, horizontal ordering during row alignment, no-overlap preservation, tiny graph coherence, selected-depth caps, padding-only near misses, boundary-only contact, and actual edge-through-node warning cases
+
+### Pre-Slice-18 Layout Refactor: Focused Helpers
+
+- split `softDepthBandLayout.ts` into an orchestration layer plus focused helper modules for rank calculation, row placement preferences, and obstruction repair/detection
+- moved hierarchy-aware rank calculation and same-side cycle collapse into `layoutRanks.ts`
+- moved relationship-aware row ordering, previous-position softness, and vertical separation into `layoutRows.ts`
+- moved padded obstruction repair and strict rendered-edge warning checks into `layoutObstructions.ts`
+- preserved existing layout behavior and test coverage while avoiding the corridor-scoring experiment that made deeper graphs visually unstable
+
+### Slice 18: UI Controls and Polish
+
+- polished toolbar button, disabled, hover, active, and keyboard-focus styling while keeping zoom percentage visible in the toolbar
+- made the minimap visible by default, collapsible from the toolbar, and draggable only by a distinct handle so canvas panning and minimap movement are not confused
+- preserved minimap position across depth changes, graph redraws, and Reset View for the current panel lifetime; closing the panel resets the position naturally with the webview
+- added hover emphasis for connected nodes and edges with subtle dimming for unrelated graph elements, while retaining focus-node priority and full node tooltips
+- added centered operational overlays for first load, updating/refocus, stale-data host warnings, empty graph/workspace, routing warnings, and layout-worker failures
+- added reduced-motion handling for fit transitions, hover/focus transitions, reveal animations, and the CSS-only loading throbber
+- reorganized `styles.css` into documented sections for theme variables, toolbar, canvas, nodes, edges, minimap, overlays, motion, and reduced-motion overrides
+- kept the canvas background tied to `--vscode-editor-background` through a tunable `--bg` CSS variable
+- added focused unit coverage for Slice 18 browser-module wiring, minimap drag separation, overlay states, hover classes, and tunable CSS sections
+
+### Slice 19: Layout Hardening
+
+- kept previous rendered graph geometry visible when the layout worker reports a failure
+- added centered Retry and Refresh actions to layout/error overlays; Retry reruns layout against the current graph, while Refresh requests a host-side index rebuild
+- verified latest-request-wins behavior for rapid request changes, including stale layout errors
+- expanded layout coverage for timeout best-result fallback, large measured labels, dense graphs, reciprocal cycles, one-sided graphs with an outermost focus node, and uneven render bounds
+- reviewed obsolete UI and dependency surface with tests that reject test-filter remnants, fixed-scene ownership, `rbush`, and runtime network APIs in the production webview/worker path
+- kept the layout dependency-free; `rbush` was not added because the bounded obstacle checks pass the current dense-graph and timeout coverage without profiling evidence that an index is needed
+
 ## Next Planned Work
 
-1. Slice 17: full-graph fit and navigation
-2. Slice 18: toolbar, minimap, hover, overlays, and CSS polish
-3. Slice 19: fallback, performance, and integration hardening
+No additional vertical slice is currently listed in `docs/python-call-graph-vertical-slices.md`.
 
 See `docs/python-call-graph-vertical-slices.md`.
 
@@ -148,12 +211,12 @@ npm run test:unit
 
 Existing browser behavior still needs manual or automated integration coverage for pointer delivery, zoom, minimap appearance, toolbar interaction, overlay presentation, and source-navigation interaction.
 
-Verification completed on 2026-06-23 from `call-graph/`:
+Verification completed on 2026-06-24 from `call-graph/`:
 
-- `npm run compile-tests` passed.
-- `npm run test:unit` passed with 73 tests.
 - `npm run compile` passed, including type checking, linting, and all four esbuild bundles.
-- VS Code Electron integration tests were not run; they are not required by the Slice 16 verification contract. Final visual validation of browser font metrics, theme contrast, and SVG arrowhead appearance remains an integration gap.
+- `npm run compile-tests` passed.
+- `npm run test:unit` passed with 102 tests after adding Slice 19 layout hardening coverage.
+- VS Code Electron integration tests were not run; they are not required by the Slice 19 verification contract. Browser-level validation of pointer delivery, minimap dragging feel, overlay action presentation, hover behavior, and source-navigation interaction remains an integration gap.
 
 ## Important Files
 
@@ -162,14 +225,18 @@ Verification completed on 2026-06-23 from `call-graph/`:
 - `call-graph/src/graph/GraphSessionState.ts`
 - `call-graph/src/graph/types.ts`
 - `call-graph/src/webview/CallGraphPanel.ts`
+- `call-graph/src/webview/NavigationHistory.ts`
 - `call-graph/src/webview/html.ts`
 - `call-graph/src/webview/renderGeometry.ts`
 - `call-graph/src/webview/zoomGeometry.ts`
 - `call-graph/src/webview/client/`
 - `call-graph/src/webview/layout/`
 - `call-graph/src/webview/layout/softDepthBandLayout.ts`
+- `call-graph/src/webview/layout/layoutObstructions.ts`
+- `call-graph/src/webview/layout/layoutRanks.ts`
+- `call-graph/src/webview/layout/layoutRows.ts`
 - `call-graph/src/webview/styles.css`
 - `call-graph/src/test/analyzer/`
 - `call-graph/src/test/webview/`
 
-Worker layout and render geometry are now connected. Slice 17 should build complete-graph fit and navigation on this geometry without restoring host-side scene calculation.
+Worker layout, render geometry, full-graph fit, panel navigation, UI polish, and Slice 19 hardening are connected. Future work should preserve the dependency-free local worker path and avoid expanding V1 graph semantics unless a new approved slice requires it.

@@ -4,13 +4,17 @@ export interface WebviewElements {
 	viewport: HTMLElement;
 	operationalOverlay: HTMLElement;
 	operationalOverlayMessage: HTMLElement;
+	operationalOverlayActions: HTMLElement;
+	retryLayout: HTMLButtonElement;
+	overlayRefresh: HTMLButtonElement;
 	depthLeft: HTMLSelectElement;
 	depthRight: HTMLSelectElement;
 	back: HTMLButtonElement;
 	forward: HTMLButtonElement;
 	refresh: HTMLButtonElement;
 	resetView: HTMLButtonElement;
-	minimap: SVGSVGElement;
+	minimap: HTMLElement;
+	minimapHandle: HTMLElement;
 	minimapToggle: HTMLButtonElement;
 	zoomPercentage: HTMLOutputElement;
 	minimapContent: SVGGElement;
@@ -26,13 +30,17 @@ export function getWebviewElements(document: Document): WebviewElements {
 		viewport: requiredElement(document, 'viewport', HTMLElement),
 		operationalOverlay: requiredElement(document, 'operational-overlay', HTMLElement),
 		operationalOverlayMessage: requiredElement(document, 'operational-overlay-message', HTMLElement),
+		operationalOverlayActions: requiredElement(document, 'operational-overlay-actions', HTMLElement),
+		retryLayout: requiredElement(document, 'retry-layout', HTMLButtonElement),
+		overlayRefresh: requiredElement(document, 'overlay-refresh', HTMLButtonElement),
 		depthLeft: requiredElement(document, 'depth-left', HTMLSelectElement),
 		depthRight: requiredElement(document, 'depth-right', HTMLSelectElement),
 		back: requiredElement(document, 'back', HTMLButtonElement),
 		forward: requiredElement(document, 'forward', HTMLButtonElement),
 		refresh: requiredElement(document, 'refresh', HTMLButtonElement),
 		resetView: requiredElement(document, 'reset-view', HTMLButtonElement),
-		minimap: requiredElement(document, 'minimap', SVGSVGElement),
+		minimap: requiredElement(document, 'minimap', HTMLElement),
+		minimapHandle: requiredElement(document, 'minimap-handle', HTMLElement),
 		minimapToggle: requiredElement(document, 'minimap-toggle', HTMLButtonElement),
 		zoomPercentage: requiredElement(document, 'zoom-percentage', HTMLOutputElement),
 		minimapContent: requiredElement(document, 'minimap-content', SVGGElement),

@@ -15,7 +15,6 @@ export interface RenderSceneGeometry {
 	height: number;
 	nodes: LayoutNodeResult[];
 	edges: LayoutEdgeResult[];
-	hasObstructedEdges: boolean;
 }
 
 // Reciprocal curves bow by 54px, so 64px keeps their control area inside the
@@ -28,7 +27,6 @@ export function emptyRenderScene(): RenderSceneGeometry {
 		height: 1,
 		nodes: [],
 		edges: [],
-		hasObstructedEdges: false,
 	};
 }
 
@@ -61,6 +59,5 @@ export function createRenderScene(
 				y: edge.end.y + offsetY,
 			},
 		})),
-		hasObstructedEdges: result.hasObstructedEdges,
 	};
 }

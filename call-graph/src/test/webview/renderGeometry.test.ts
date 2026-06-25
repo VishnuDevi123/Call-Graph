@@ -44,12 +44,39 @@ suite('webview variable node and vector edge geometry', () => {
 		assert.strictEqual(reverse, 'M 300 100 Q 200 46 100 100');
 	});
 
-	test('retains obstruction status for the rendering warning', () => {
-		const result = layoutResult();
-		result.hasObstructedEdges = true;
+	test('keeps uneven outer bounds positive when the focus is outermost', () => {
+		const scene = createRenderScene({
+			type: 'layoutResult',
+			requestId: 29,
+			nodes: [
+				{ id: 'focus', x: -420, y: 40, width: 180, height: 70 },
+				{ id: 'callee', x: 260, y: -180, width: 220, height: 58 },
+			],
+			edges: [{
+				id: 'focus-callee',
+				type: 'normal',
+				start: { x: -240, y: 75 },
+				end: { x: 260, y: -151 },
+			}],
+			contentBounds: {
+				left: -420,
+				top: -180,
+				right: 480,
+				bottom: 110,
+				width: 900,
+				height: 290,
+			},
+			hasObstructedEdges: false,
+		});
 
-		assert.strictEqual(createRenderScene(result).hasObstructedEdges, true);
+		assert.deepStrictEqual(scene.nodes[0], { id: 'focus', x: 64, y: 284, width: 180, height: 70 });
+		assert.deepStrictEqual(scene.nodes[1], { id: 'callee', x: 744, y: 64, width: 220, height: 58 });
+		assert.deepStrictEqual(scene.edges[0].start, { x: 244, y: 319 });
+		assert.deepStrictEqual(scene.edges[0].end, { x: 744, y: 93 });
+		assert.strictEqual(scene.width, 1028);
+		assert.strictEqual(scene.height, 418);
 	});
+
 });
 
 function layoutResult(): LayoutSuccessResult {

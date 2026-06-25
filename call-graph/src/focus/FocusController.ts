@@ -28,6 +28,7 @@ export class FocusController implements vscode.Disposable {
 	private readonly disposables: vscode.Disposable[] = [];
 	private debounceTimer: ReturnType<typeof setTimeout> | undefined;
 	private readonly sessionState = new GraphSessionState();
+	private suppressEditorFocusUntil = 0;
 
 	public constructor(private readonly workspaceIndex: WorkspaceIndexService) {
 		this.disposables.push(
@@ -92,6 +93,21 @@ export class FocusController implements vscode.Disposable {
 		}, true);
 	}
 
+	public async revealNodeSource(nodeId: string): Promise<void> {
+		const indexedNode = this.workspaceIndex.getNode(nodeId);
+		if (!indexedNode) {
+			void vscode.window.showWarningMessage('The selected Call Graph node is no longer available. Refresh the index and try again.');
+			return;
+		}
+
+		// Source reveal moves the editor cursor, but single-click graph peeking
+		// must not immediately refocus and rebuild the graph through the normal
+		// editor-selection listener.
+		this.suppressNextEditorFocusUpdate();
+		await this.revealSource(indexedNode.uri, indexedNode.node);
+		this.suppressNextEditorFocusUpdate();
+	}
+
 	public setDirectionalDepth(direction: GraphExpansionDirection, depth: GraphDepth): void {
 		if (!this.sessionState.focusNodeId) {
 			return;
@@ -119,6 +135,14 @@ export class FocusController implements vscode.Disposable {
 	}
 
 	private scheduleFocusUpdate(): void {
+		if (Date.now() < this.suppressEditorFocusUntil) {
+			if (this.debounceTimer) {
+				clearTimeout(this.debounceTimer);
+				this.debounceTimer = undefined;
+			}
+			return;
+		}
+
 		if (this.debounceTimer) {
 			clearTimeout(this.debounceTimer);
 		}
@@ -130,6 +154,10 @@ export class FocusController implements vscode.Disposable {
 				warnWhenOutsideFunction: false,
 			});
 		}, FOCUS_UPDATE_DELAY_MS);
+	}
+
+	private suppressNextEditorFocusUpdate(): void {
+		this.suppressEditorFocusUntil = Date.now() + FOCUS_UPDATE_DELAY_MS * 2;
 	}
 
 	private publishFocus(focus: FocusUpdate, forcePublish: boolean): void {

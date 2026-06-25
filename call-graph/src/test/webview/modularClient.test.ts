@@ -63,9 +63,13 @@ suite('modular webview client shell', () => {
 			'depth-left',
 			'depth-right',
 			'minimap-toggle',
+			'minimap-handle',
 			'zoom-percentage',
 			'operational-overlay',
 			'operational-overlay-message',
+			'operational-overlay-actions',
+			'retry-layout',
+			'overlay-refresh',
 			'node-measurements',
 		]) {
 			assert.ok(html.includes(`id="${id}"`), `missing ${id}`);
@@ -73,9 +77,66 @@ suite('modular webview client shell', () => {
 		assert.ok(html.includes('id="back" type="button" disabled'));
 		assert.ok(html.includes('id="forward" type="button" disabled'));
 		assert.ok(html.includes('class="operational-overlay"'));
+		assert.ok(html.includes('class="operational-throbber"'));
+		assert.ok(html.includes('<button id="retry-layout" type="button">Retry</button>'));
+		assert.ok(html.includes('<button id="overlay-refresh" type="button">Refresh</button>'));
+		assert.ok(html.includes('aria-label="Move minimap"'));
 		assert.strictEqual(html.includes('include-tests'), false);
 		assert.strictEqual(html.includes('Include tests'), false);
 		assert.strictEqual(html.includes('id="status"'), false);
+	});
+
+	test('keeps slice 18 UI polish in browser modules and tunable CSS sections', () => {
+		const client = source('src/webview/client/index.ts');
+		const renderer = source('src/webview/client/graphRenderer.ts');
+		const minimap = source('src/webview/client/minimap.ts');
+		const styles = source('src/webview/styles.css');
+
+		assert.ok(client.includes("showOperationalOverlay('Loading call graph...', 'loading')"));
+		assert.ok(client.includes("'Some edges could not avoid unrelated nodes"));
+		assert.ok(client.includes("'No Python call graph data is available"));
+		assert.ok(client.includes('function retryLayout()'));
+		assert.ok(client.includes("showOperationalOverlay('Retrying layout...', 'loading')"));
+		assert.ok(client.includes('updateOverlayActions'));
+		assert.ok(renderer.includes('applyHoverState'));
+		assert.ok(renderer.includes('is-connected'));
+		assert.ok(renderer.includes('is-dimmed'));
+		assert.ok(minimap.includes('installMinimapDrag'));
+		assert.ok(minimap.includes('elements.minimapHandle.setPointerCapture'));
+		for (const section of [
+			'/* Theme and tunable graph variables */',
+			'/* Toolbar and controls */',
+			'/* Canvas and viewport */',
+			'/* Edges and arrows */',
+			'/* Nodes and role states */',
+			'/* Notices and operational overlays */',
+			'/* Minimap */',
+			'/* Reduced-motion overrides */',
+		]) {
+			assert.ok(styles.includes(section), section);
+		}
+		assert.ok(styles.includes('--bg:'));
+		assert.ok(styles.includes('--call-graph-motion-duration'));
+	});
+
+	test('wires panel-lifetime navigation and full-graph fit behavior', () => {
+		const panel = source('src/webview/CallGraphPanel.ts');
+		const controls = source('src/webview/client/controls.ts');
+		const client = source('src/webview/client/index.ts');
+		const extension = source('src/extension.ts');
+		const focusController = source('src/focus/FocusController.ts');
+
+		assert.ok(panel.includes('NavigationHistory'));
+		assert.ok(panel.includes("case 'nodeRevealed'"));
+		assert.ok(panel.includes("case 'nodeActivated'"));
+		assert.ok(controls.includes("type: 'navigateBack'"));
+		assert.ok(controls.includes("type: 'navigateForward'"));
+		assert.ok(client.includes('fitCompleteGraph(hasCompletedLayout)'));
+		assert.ok(client.includes("matchMedia('(prefers-reduced-motion: reduce)')"));
+		assert.ok(extension.includes('onNodeRevealed'));
+		assert.ok(extension.includes('onNodeActivated'));
+		assert.ok(focusController.includes('revealNodeSource'));
+		assert.ok(focusController.includes('suppressNextEditorFocusUpdate'));
 	});
 
 	test('contains no obsolete test-filter messages or controls', () => {
@@ -111,6 +172,25 @@ suite('modular webview client shell', () => {
 		assert.ok(workerLoader.includes('URL.createObjectURL'));
 		assert.ok(workerLoader.includes('URL.revokeObjectURL'));
 		assert.ok(workerLoader.includes('new Worker(workerUrl)'));
+	});
+
+	test('keeps production webview and worker packaging offline-only', () => {
+		const packageJson = JSON.parse(source('package.json')) as { dependencies?: Record<string, string> };
+		const webviewFiles = [
+			'src/webview/client/index.ts',
+			'src/webview/client/localLayoutWorker.ts',
+			'src/webview/layout/layoutWorker.ts',
+			'src/webview/layout/softDepthBandLayout.ts',
+			'src/webview/html.ts',
+		];
+		const combinedWebviewSource = webviewFiles.map(source).join('\n');
+
+		assert.strictEqual(packageJson.dependencies?.rbush, undefined);
+		assert.strictEqual(/https?:\/\//.test(combinedWebviewSource), false);
+		assert.strictEqual(combinedWebviewSource.includes('importScripts'), false);
+		assert.strictEqual(combinedWebviewSource.includes('WebSocket'), false);
+		assert.strictEqual(combinedWebviewSource.includes('XMLHttpRequest'), false);
+		assert.ok(combinedWebviewSource.includes('fetch(workerSourceUri)'));
 	});
 
 	test('keeps layout and rendering geometry in the webview', () => {

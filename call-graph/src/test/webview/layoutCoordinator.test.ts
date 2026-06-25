@@ -10,19 +10,41 @@ suite('layout worker coordinator', () => {
 	test('assigns increasing request IDs and ignores stale results', () => {
 		const worker = new FakeWorker();
 		const accepted: number[] = [];
+		const errors: string[] = [];
 		const coordinator = new LayoutCoordinator(
 			worker,
 			result => accepted.push(result.requestId),
-			message => assert.fail(message),
+			message => errors.push(message),
 		);
 
 		assert.strictEqual(coordinator.request(requestInput()), 1);
 		assert.strictEqual(coordinator.request(requestInput()), 2);
+		worker.emit(errorResult(1, 'stale failure'));
 		worker.emit(result(1));
 		worker.emit(result(2));
 
 		assert.deepStrictEqual(worker.requests.map(request => request.requestId), [1, 2]);
 		assert.deepStrictEqual(accepted, [2]);
+		assert.deepStrictEqual(errors, []);
+	});
+
+	test('reports only the newest layout failure so stale errors cannot replace the visible graph', () => {
+		const worker = new FakeWorker();
+		const accepted: number[] = [];
+		const errors: string[] = [];
+		const coordinator = new LayoutCoordinator(
+			worker,
+			result => accepted.push(result.requestId),
+			message => errors.push(message),
+		);
+
+		coordinator.request(requestInput());
+		coordinator.request(requestInput());
+		worker.emit(errorResult(1, 'old request failed'));
+		worker.emit(errorResult(2, 'latest request failed'));
+
+		assert.deepStrictEqual(accepted, []);
+		assert.deepStrictEqual(errors, ['latest request failed']);
 	});
 
 	test('terminates its panel-lifetime worker', () => {
@@ -93,5 +115,13 @@ function result(requestId: number): LayoutSuccessResult {
 			height: 0,
 		},
 		hasObstructedEdges: false,
+	};
+}
+
+function errorResult(requestId: number, message: string): LayoutWorkerResult {
+	return {
+		type: 'layoutError',
+		requestId,
+		message,
 	};
 }

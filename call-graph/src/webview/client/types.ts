@@ -5,13 +5,17 @@ export interface VsCodeApi {
 }
 
 export type ClientMessage =
-	| { type: 'nodeSelected'; nodeId: string }
+	| { type: 'nodeRevealed'; nodeId: string }
+	| { type: 'nodeActivated'; nodeId: string }
+	| { type: 'navigateBack' }
+	| { type: 'navigateForward' }
 	| { type: 'refreshRequested' }
 	| { type: 'depthChanged'; direction: GraphExpansionDirection; depth: GraphDepth };
 
 export type HostMessage =
 	| { type: 'graphUpdated'; graph: GraphModel }
-	| { type: 'overlayUpdated'; message?: string; severity: 'warning' }
+	| { type: 'navigationStateUpdated'; canGoBack: boolean; canGoForward: boolean }
+	| { type: 'overlayUpdated'; message?: string; severity: 'loading' | 'warning' | 'error' | 'empty' }
 	| { type: 'revealDirection'; direction: GraphExpansionDirection };
 
 declare global {

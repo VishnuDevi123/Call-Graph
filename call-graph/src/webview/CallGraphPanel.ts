@@ -1,15 +1,20 @@
 import * as vscode from 'vscode';
 import type { GraphDepth, GraphExpansionDirection, GraphModel } from '../graph/types';
 import { getWebviewHtml } from './html';
+import { NavigationHistory } from './NavigationHistory';
 
 type WebviewMessage =
-	| { type: 'nodeSelected'; nodeId: string }
+	| { type: 'nodeRevealed'; nodeId: string }
+	| { type: 'nodeActivated'; nodeId: string }
+	| { type: 'navigateBack' }
+	| { type: 'navigateForward' }
 	| { type: 'refreshRequested' }
 	| { type: 'depthChanged'; direction: GraphExpansionDirection; depth: GraphDepth };
 
 // handlers for messages sent from the webview to the extension
 export interface CallGraphPanelHandlers {
-	onNodeSelected(nodeId: string): void | Promise<void>;
+	onNodeRevealed(nodeId: string): void | Promise<void>;
+	onNodeActivated(nodeId: string): void | Promise<void>;
 	onDepthChanged(direction: GraphExpansionDirection, depth: GraphDepth): void | Promise<void>;
 }
 
@@ -20,6 +25,7 @@ export class CallGraphPanel {
 
 	private readonly panel: vscode.WebviewPanel;
 	private readonly disposables: vscode.Disposable[] = [];
+	private readonly navigationHistory = new NavigationHistory();
 
 // initilizes the webview panel, sets up message handling, and defines how to update the graph and status displayed in the webview
 	private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, private readonly handlers: CallGraphPanelHandlers) {
@@ -65,10 +71,12 @@ export class CallGraphPanel {
 	}
 	// updates the graph displayed in the webview by sending a message with the new graph data
 	public updateGraph(graph: GraphModel): void {
+		this.navigationHistory.observeCurrentNode(graph.focusNodeId);
 		void this.panel.webview.postMessage({
 			type: 'graphUpdated',
 			graph,
 		});
+		this.postNavigationState();
 	}
 
 	// updates the status message displayed in the webview
@@ -91,8 +99,17 @@ export class CallGraphPanel {
 	// handles messages received from the webview and calls the appropriate handler based on the message type
 	private handleMessage(message: WebviewMessage): void {
 		switch (message.type) {
-			case 'nodeSelected':
-				void this.handlers.onNodeSelected(message.nodeId);
+			case 'nodeRevealed':
+				void this.handlers.onNodeRevealed(message.nodeId);
+				return;
+			case 'nodeActivated':
+				this.navigateTo(this.navigationHistory.navigateTo(message.nodeId));
+				return;
+			case 'navigateBack':
+				this.navigateTo(this.navigationHistory.back());
+				return;
+			case 'navigateForward':
+				this.navigateTo(this.navigationHistory.forward());
 				return;
 			case 'refreshRequested':
 				void vscode.commands.executeCommand('call-graph.refreshIndex');
@@ -101,6 +118,22 @@ export class CallGraphPanel {
 				void this.handlers.onDepthChanged(message.direction, message.depth);
 				return;
 		}
+	}
+
+	private navigateTo(nodeId: string | undefined): void {
+		if (!nodeId) {
+			return;
+		}
+
+		this.postNavigationState();
+		void this.handlers.onNodeActivated(nodeId);
+	}
+
+	private postNavigationState(): void {
+		void this.panel.webview.postMessage({
+			type: 'navigationStateUpdated',
+			...this.navigationHistory.state,
+		});
 	}
 
 	private dispose(): void {

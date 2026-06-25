@@ -15,6 +15,11 @@ export function renderGraph(
 	vscode: VsCodeApi,
 ): void {
 	elements.canvas.replaceChildren();
+	elements.canvas.dataset.graphEdges = JSON.stringify(graph.edges.map(edge => ({
+		id: edge.id,
+		from: edge.from,
+		to: edge.to,
+	})));
 	elements.canvas.style.width = `${scene.width}px`;
 	elements.canvas.style.height = `${scene.height}px`;
 	elements.canvas.appendChild(createEdgeOverlay(document));
@@ -50,9 +55,6 @@ function renderNotices(
 	if (graph.largeGraphWarning) {
 		messages.push('Graphs above 100 nodes may lay out slowly.');
 	}
-	if (scene.hasObstructedEdges) {
-		messages.push('Some edges could not be routed clear of unrelated nodes.');
-	}
 	messages.forEach((message, index) => {
 		const notice = document.createElement('div');
 		notice.className = 'limit';
@@ -84,6 +86,7 @@ function nodeElement(
 	const button = document.createElement('button');
 	button.type = 'button';
 	button.className = `node ${node.role}`;
+	button.title = `${node.label} (${fileName(node.filePath)}:${node.line})`;
 	if (node.role === 'focus' && animateFocus) {
 		button.classList.add('focus-transition');
 	}
@@ -96,8 +99,77 @@ function nodeElement(
 	button.append(name, meta);
 	button.addEventListener('click', event => {
 		event.stopPropagation();
-		vscode.postMessage({ type: 'nodeSelected', nodeId: node.id });
+		vscode.postMessage({ type: 'nodeRevealed', nodeId: node.id });
 	});
+	button.addEventListener('dblclick', event => {
+		event.stopPropagation();
+		vscode.postMessage({ type: 'nodeActivated', nodeId: node.id });
+	});
+	button.addEventListener('keydown', event => {
+		if (event.key !== 'Enter') {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		vscode.postMessage({ type: 'nodeActivated', nodeId: node.id });
+	});
+	wrapper.addEventListener('mouseenter', () => applyHoverState(wrapper, node.id));
+	wrapper.addEventListener('focusin', () => applyHoverState(wrapper, node.id));
+	wrapper.addEventListener('mouseleave', () => clearHoverState(wrapper));
+	wrapper.addEventListener('focusout', () => clearHoverState(wrapper));
 	wrapper.appendChild(button);
 	return wrapper;
+}
+
+function applyHoverState(wrapper: HTMLElement, nodeId: string): void {
+	const canvas = wrapper.closest<HTMLElement>('.canvas');
+	if (!canvas) {
+		return;
+	}
+	const connectedNodeIds = new Set([nodeId]);
+	const connectedEdgeIds = new Set<string>();
+	for (const edge of currentGraphEdges(canvas)) {
+		if (edge.from === nodeId || edge.to === nodeId) {
+			connectedNodeIds.add(edge.from);
+			connectedNodeIds.add(edge.to);
+			connectedEdgeIds.add(edge.id);
+		}
+	}
+	canvas.classList.add('has-hover');
+	for (const element of Array.from(canvas.querySelectorAll<HTMLElement>('.node-wrap'))) {
+		const connected = connectedNodeIds.has(element.dataset.nodeId ?? '');
+		element.classList.toggle('is-connected', connected);
+		element.classList.toggle('is-dimmed', !connected);
+	}
+	for (const edge of Array.from(canvas.querySelectorAll<SVGPathElement>('.edge-path'))) {
+		const connected = connectedEdgeIds.has(edge.dataset.edgeId ?? '');
+		edge.classList.toggle('is-connected', connected);
+		edge.classList.toggle('is-dimmed', !connected);
+	}
+}
+
+function clearHoverState(wrapper: HTMLElement): void {
+	const canvas = wrapper.closest<HTMLElement>('.canvas');
+	if (!canvas) {
+		return;
+	}
+	canvas.classList.remove('has-hover');
+	for (const element of Array.from(canvas.querySelectorAll<HTMLElement>('.node-wrap.is-connected, .node-wrap.is-dimmed'))) {
+		element.classList.remove('is-connected', 'is-dimmed');
+	}
+	for (const edge of Array.from(canvas.querySelectorAll<SVGPathElement>('.edge-path.is-connected, .edge-path.is-dimmed'))) {
+		edge.classList.remove('is-connected', 'is-dimmed');
+	}
+}
+
+function currentGraphEdges(canvas: HTMLElement): Array<{ id: string; from: string; to: string }> {
+	const encodedEdges = canvas.dataset.graphEdges;
+	if (!encodedEdges) {
+		return [];
+	}
+	try {
+		return JSON.parse(encodedEdges) as Array<{ id: string; from: string; to: string }>;
+	} catch {
+		return [];
+	}
 }

@@ -63,13 +63,21 @@ export function getWebviewHtml(webview: vscode.Webview, resources: WebviewResour
 			<main id="canvas" class="canvas" aria-label="Call graph canvas"></main>
 		</div>
 		<div id="operational-overlay" class="operational-overlay" role="status" aria-live="polite" hidden>
+			<span class="operational-throbber" aria-hidden="true"></span>
 			<span id="operational-overlay-message"></span>
+			<div id="operational-overlay-actions" class="operational-overlay-actions" hidden>
+				<button id="retry-layout" type="button">Retry</button>
+				<button id="overlay-refresh" type="button">Refresh</button>
+			</div>
 		</div>
 	</div>
-	<svg id="minimap" class="minimap" viewBox="0 0 176 112" aria-label="Graph overview">
-		<g id="minimap-content"></g>
-		<rect id="minimap-viewport" class="minimap-viewport" x="0" y="0" width="176" height="112" rx="2"></rect>
-	</svg>
+	<aside id="minimap" class="minimap" aria-label="Graph overview">
+		<div id="minimap-handle" class="minimap-handle" role="button" tabindex="0" aria-label="Move minimap"></div>
+		<svg id="minimap-svg" class="minimap-svg" viewBox="0 0 176 112" aria-hidden="true">
+			<g id="minimap-content"></g>
+			<rect id="minimap-viewport" class="minimap-viewport" x="0" y="0" width="176" height="112" rx="2"></rect>
+		</svg>
+	</aside>
 	<div id="node-measurements" class="measurement-root" aria-hidden="true"></div>
 	<script nonce="${nonce}" src="${resources.scriptUri}"></script>
 </body>

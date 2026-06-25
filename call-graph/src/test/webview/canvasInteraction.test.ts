@@ -25,6 +25,18 @@ suite('webview canvas interaction and graph labels', () => {
 		assert.strictEqual(shouldStartPan(0, true), false);
 	});
 
+	test('keeps minimap dragging separate from canvas panning', () => {
+		const minimap = clientSource('minimap.ts');
+		const styles = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'styles.css'), 'utf8');
+
+		assert.ok(minimap.includes('elements.minimapHandle.addEventListener'));
+		assert.ok(minimap.includes('positionMinimap'));
+		assert.ok(minimap.includes("elements.minimap.style.right = 'auto'"));
+		assert.ok(styles.includes('.minimap-handle'));
+		assert.ok(styles.includes('.minimap.is-dragging'));
+		assert.ok(styles.includes('cursor: grab'));
+	});
+
 	test('uses pointer capture and local viewport scrolling without extension messages', () => {
 		const source = clientSource('panning.ts');
 
@@ -48,6 +60,16 @@ suite('webview canvas interaction and graph labels', () => {
 		assert.strictEqual(source.includes('graphEdge.label'), false);
 	});
 
+	test('separates single-click source reveal from double-click graph activation', () => {
+		const renderer = clientSource('graphRenderer.ts');
+
+		assert.ok(renderer.includes("addEventListener('click'"));
+		assert.ok(renderer.includes("type: 'nodeRevealed'"));
+		assert.ok(renderer.includes("addEventListener('dblclick'"));
+		assert.ok(renderer.includes("type: 'nodeActivated'"));
+		assert.strictEqual(renderer.includes("type: 'nodeSelected'"), false);
+	});
+
 	test('does not render graph role headings or unresolved and external sections', () => {
 		const source = clientSource('graphRenderer.ts');
 
@@ -69,13 +91,13 @@ suite('webview canvas interaction and graph labels', () => {
 		assert.ok(renderer.includes('name.textContent = node.label'));
 		assert.ok(renderer.includes('`${fileName(node.filePath)}:${node.line}`'));
 		assert.ok(measurement.includes('getBoundingClientRect()'));
-		assert.ok(styles.includes('font-size: 12pt'));
-		assert.ok(styles.includes('font-size: 9pt'));
-		assert.ok(styles.includes('--call-graph-node-radius: 4px'));
+		assert.ok(styles.includes('--call-graph-function-font-size'));
+		assert.ok(styles.includes('--call-graph-location-font-size'));
+		assert.ok(styles.includes('--call-graph-node-radius'));
 		assert.ok(styles.includes('white-space: nowrap'));
-		assert.ok(styles.includes('--call-graph-caller: #6366f1'));
-		assert.ok(styles.includes('--call-graph-focus: #f43f5e'));
-		assert.ok(styles.includes('--call-graph-callee: #14b8a6'));
+		assert.ok(styles.includes('--call-graph-caller'));
+		assert.ok(styles.includes('--call-graph-focus'));
+		assert.ok(styles.includes('--call-graph-callee'));
 		assert.strictEqual(renderer.includes('empty-state'), false);
 		assert.strictEqual(renderer.includes("textContent = 'None'"), false);
 		assert.strictEqual(renderer.includes("className = 'group'"), false);
