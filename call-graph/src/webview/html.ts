@@ -20,7 +20,6 @@ export function getWebviewHtml(webview: vscode.Webview, resources: WebviewResour
 </head>
 <body data-layout-worker-uri="${resources.workerUri}">
 	<header class="toolbar">
-		<div class="title">Call Graph</div>
 		<div class="toolbar-actions">
 			<div class="toolbar-group" aria-label="Graph navigation">
 				<button id="back" type="button" disabled aria-label="Back">Back</button>
@@ -31,7 +30,7 @@ export function getWebviewHtml(webview: vscode.Webview, resources: WebviewResour
 				<button id="reset-view" type="button">Reset View</button>
 			</div>
 			<label class="depth-control">
-				<span>Depth Left</span>
+				<span>Caller Depth</span>
 				<select id="depth-left" aria-label="Caller depth">
 					<option value="1">1</option>
 					<option value="2">2</option>
@@ -42,7 +41,7 @@ export function getWebviewHtml(webview: vscode.Webview, resources: WebviewResour
 				</select>
 			</label>
 			<label class="depth-control">
-				<span>Depth Right</span>
+				<span>Callee Depth</span>
 				<select id="depth-right" aria-label="Callee depth">
 					<option value="1">1</option>
 					<option value="2">2</option>
